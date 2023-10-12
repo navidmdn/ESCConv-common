@@ -319,7 +319,8 @@ class GenerateDataset(Dataset):
                     history[0] = text + self.sep_token + history[0]
                     continue
                 if tmp_dic['speaker'] == 'sys' and tmp_dic['strategy'] != "Others":
-                    tmp_stratege = norm_strategy(tmp_dic['strategy'])
+                    # build one example from history up to this point of conversation
+                    tmp_strategy = norm_strategy(tmp_dic['strategy'])
                     save_s = [x for x in tot_strategy[len(tmp_strategy_list):]].copy()
                     assert len(save_s) > 0, print(tot_strategy, tmp_strategy_list)
                     tmp_history = copy.deepcopy(history)
@@ -335,41 +336,43 @@ class GenerateDataset(Dataset):
                             predict_strategy_index += 1
                         else:
                             if self.model_type == 8:
-                                tmp_history.append(tmp_stratege)
-                                # response = tmp_stratege + " " + text
+                                tmp_history.append(tmp_strategy)
+                                # response = tmp_strategy + " " + text
                             else:
-                                tmp_history[-1] = tmp_history[-1] + self.sep_token + tmp_stratege
+                                tmp_history[-1] = tmp_history[-1] + self.sep_token + tmp_strategy
                     self.total_data.append({
                         "history": tmp_history,
-                        "strategy": tmp_stratege,
+                        "strategy": tmp_strategy,
                         "history_strategy": tmp_strategy_list,
                         "response": response,
                         "future_strategy": ' '.join(save_s),
+                        #todo: what is the use case for stage of conversation?
                         "stage": 5 * index // dialog_len,
-                        # 'vad': vad_list.copy(),
                     })
-                    tmp_strategy_list.append(tmp_stratege)
+                    tmp_strategy_list.append(tmp_strategy)
                 if tmp_dic['speaker'] == 'sys':
-                    tmp_stratege = norm_strategy(tmp_dic['strategy'])
-                    # vad_list.append(np.zeros(3))
+                    tmp_strategy = norm_strategy(tmp_dic['strategy'])
                     if with_strategy:
-                        tmp_sen = tmp_stratege + self.sep_token + text
+                        # add strategy as control code to the history text
+                        tmp_sen = tmp_strategy + self.sep_token + text
                         history.append(tmp_sen)
                     else:
                         history.append(text)
                 else:
-                    # vad_list.append(np.array(tmp_dic['vad']))
                     if add_cause:
                         cause = tmp_dic['cause']
                         if cause is not None:
                             history.append(cause + self.sep_token + text)
                     else:
                         history.append(text)
+
         if 'test' in file_path and with_strategy and self.model_type > 4:
             assert len(self.total_data) == predict_strategy_index, print("tot_data: ",len(self.total_data), "predict_index", predict_strategy_index)
+
         x = random.randint(1, 50)
         print(x)
         xx = self.__getitem__(x)
+
         if 'train' in file_path:
             # self.total_data = self.total_data[:100]
             if len(xx['input_ids'].size()) < 2:
@@ -383,6 +386,7 @@ class GenerateDataset(Dataset):
                         print(xx['vads'][index])
         else:
             print("ans: ", self.tokenizer.decode(xx['labels']))
+
     def generate_truncate(self, history, max_len, flag='no_label'):  # label 不应该加cls标记， 因为decoder_inputs会自动加上 详见shift_tokens_right
         input_ids = []
         for text in history:
