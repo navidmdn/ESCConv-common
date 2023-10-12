@@ -20,11 +20,11 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
 from transformers import BartTokenizer, BartModel, BartConfig, GPT2Tokenizer, BlenderbotSmallTokenizer
-from MODEL.MultiSource import BART_MODEL
+from hf_modeling.modeling_bart_old import BART_MODEL
 from data.Datareader import GenerateDataset2 as BartDataset, get_stratege,fix_random
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name_or_path", default='../MODEL/bart-base',type=str)
+parser.add_argument("--model_name_or_path", default='../hf_modeling/bart-base',type=str)
 # parser.add_argument("--dataset", default="lcsts",type=str)
 parser.add_argument("--lr2",default=1e-4,type=float)
 # parser.add_argument("--batch_size",default='50',type=str)
@@ -60,7 +60,7 @@ parser.add_argument("--sen_num", default=64, type=int)
 parser.add_argument("--with_cause",action="store_true")
 parser.add_argument("--lookahead",action="store_true")
 parser.add_argument("--not_pretrain", action="store_true")
-parser.add_argument("--config_path", default='../../MODEL/transformer_config', type=str)
+parser.add_argument("--config_path", default='../../hf_modeling/transformer_config', type=str)
 
 parser.add_argument("--with_strategy",action="store_true")
 args = parser.parse_args()

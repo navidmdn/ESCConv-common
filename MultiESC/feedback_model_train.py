@@ -20,7 +20,7 @@ from transformers import HfArgumentParser
 import copy
 # from torch.utils.data.dataset import Dataset
 from data.Datareader import get_stratege, read_pk, PredictFeedBackDataset
-from MODEL.BertModelForFeedBack import BERTMODEL_LIST
+from hf_modeling.BertModelForFeedBack import BERTMODEL_LIST
 from transformers import BertTokenizer
 import warnings
 from collections import defaultdict, Counter
@@ -29,7 +29,7 @@ warnings.filterwarnings("ignore")
 bert feedback predict
 '''
 parser = argparse.ArgumentParser()
-parser.add_argument('--pretrain_model', default='../MODEL/bert-base-uncased',
+parser.add_argument('--pretrain_model', default='../hf_modeling/bert-base-uncased',
                         help='Pretrain model weight')
 parser.add_argument('--output_dir', default='./final_output/',
                         help='The output directory where the model predictions and checkpoints will be written.')

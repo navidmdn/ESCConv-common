@@ -17,14 +17,16 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc
 from collections import Counter
 from sklearn.metrics import accuracy_score
 import sys
+
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
+
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
-from transformers import BartTokenizer, BartModel,BartConfig
-from MODEL.MultiSource import BART_MODEL
+from transformers import BartTokenizer, BartModel, BartConfig
+from hf_modeling.modeling_bart_old import BART_MODEL
 from data.Datareader import GenerateDataset2 as BartDataset, get_stratege
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name_or_path", default='../MODEL/bart-base',type=str)
+parser.add_argument("--model_name_or_path", default='bart-base',type=str)
 # parser.add_argument("--dataset", default="lcsts",type=str)
 parser.add_argument("--lr2",default=1e-4,type=float)
 parser.add_argument("--do_train",default=True)
@@ -34,7 +36,7 @@ parser.add_argument("--train_file",default="./data/train.txt",type=str)
 parser.add_argument("--validation_file",default="./data/valid.txt",type=str)
 parser.add_argument("--test_file",default="./data/test.txt",type=str)
 parser.add_argument("--output_dir",default="./output/",type=str)
-parser.add_argument("--per_device_train_batch_size", default=16, type=int)
+parser.add_argument("--per_device_train_batch_size", default=3, type=int)
 parser.add_argument("--per_device_eval_batch_size", default=1, type=int)
 parser.add_argument("--overwrite_output_dir", action="store_true")
 parser.add_argument("--warmup_ratio", default=0.0, type=float)
@@ -57,7 +59,7 @@ parser.add_argument("--model_type", default=0, type=int) # 0 norm bart  2 hierar
 parser.add_argument("--sen_num", default=64, type=int)
 parser.add_argument("--with_cause",action="store_true")
 parser.add_argument("--not_pretrain", action="store_true")
-parser.add_argument("--config_path", default='../../MODEL/transformer_config', type=str)
+parser.add_argument("--config_path", default='../../hf_modeling/transformer_config', type=str)
 
 parser.add_argument("--with_strategy",action="store_true")
 # save_strategy="epoch",load_best_model_at_end=True
@@ -95,8 +97,8 @@ print("args.model_name_or_path: ", args.model_name_or_path)
 ###################
 # Dataset and model ready
 ###################
-strategys = get_stratege('../new_strategy.json', norm=True)
-strategy_list = [v for k,v in enumerate(strategys)]
+strategies = get_stratege('../new_strategy.json', norm=True)
+strategy_list = [v for k,v in enumerate(strategies)]
 BartForConditionalGeneration = BART_MODEL[args.model_type]
 tokenizer = BartTokenizer.from_pretrained(args.model_name_or_path)
 tokenizer.add_tokens(strategy_list)
@@ -109,7 +111,9 @@ tokenizer.add_tokens(strategy_list)
 ###################
 import nltk
 import metric
-def clac_metric2(decoder_preds, decoder_labels,no_glove=False):
+
+# todo: what are acc-n?
+def clac_metric2(decoder_preds, decoder_labels, no_glove=False):
     # ref_list = []
     # hyp_list = []
     acc1, acc2, acc3 = 0.,0.,0.
@@ -192,6 +196,8 @@ def compute_metrics(eval_preds):
 from transformers.trainer_pt_utils import get_parameter_names
 from torch import nn
 from transformers.optimization import AdamW, Adafactor
+
+# todo: what are we separating?
 def get_optimer(model, second_parameter, train_parser):
     # decay_parameters = get_parameter_names(model, [nn.LayerNorm])
     # decay_parameters = [name for name in decay_parameters if "bias" not in name]
@@ -231,6 +237,7 @@ def train(args):
         print('we do not use pretrain parameters')
     else:
         model, loading_info = BartForConditionalGeneration.from_pretrained(args.model_name_or_path, output_loading_info=True)
+        # todo: what are missing keys?!
         sencond_parameters = loading_info['missing_keys']
 
         print("we use pretrain")

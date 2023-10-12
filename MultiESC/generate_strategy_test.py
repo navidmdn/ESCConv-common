@@ -20,12 +20,12 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
 from transformers import BartTokenizer, BartModel,BartConfig
-from MODEL.MultiSource import BART_MODEL
+from hf_modeling.modeling_bart_old import BART_MODEL
 from data.Datareader import GenerateDataset2 as BartDataset, get_stratege
 import pickle
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name_or_path", default='../MODEL/bart-base',type=str)
+parser.add_argument("--model_name_or_path", default='../hf_modeling/bart-base',type=str)
 # parser.add_argument("--dataset", default="lcsts",type=str)
 parser.add_argument("--lr2",default=1e-4,type=float)
 # parser.add_argument("--batch_size",default='50',type=str)
@@ -61,7 +61,7 @@ parser.add_argument("--model_type", default=0, type=int) # 0 norm bart  2 hierar
 parser.add_argument("--sen_num", default=64, type=int)
 parser.add_argument("--with_cause",action="store_true")
 parser.add_argument("--not_pretrain", action="store_true")
-parser.add_argument("--config_path", default='../../MODEL/transformer_config', type=str)
+parser.add_argument("--config_path", default='../../hf_modeling/transformer_config', type=str)
 
 # data_type :{ 0: norm_bert   1: hie_bert  2: norm_strategy 3: hie_strategy  4: norm_sentence  5: hie_sentence, 6.two seqence}
 
@@ -258,7 +258,7 @@ def get_bart_predict_withscore(train_dataset1, path='./data/extend_data.pk', seq
         os.mkdir(save_dir)
     args.output_dir = './output/test1'
 
-    # from MODEL.MultiSource import BartForConditionalGeneration as BartModel1
+    # from hf_modeling.MultiSource import BartForConditionalGeneration as BartModel1
     BartModel1 = BART_MODEL[args.model_type]
     model = BartModel1.from_pretrained(args.pretrain_model)
     model.config.num_return_sequences = sequence_num

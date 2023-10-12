@@ -19,7 +19,7 @@ def static_feedback(data_list):
 from transformers import BartTokenizer
 from Datareader import GenerateDataset2, get_stratege
 import numpy as np
-MODEL_PATH = '../MODEL/bart-base'
+MODEL_PATH = '../hf_modeling/bart-base'
 
 
 tot_strategy = get_stratege('../new_strategy.json',norm=True)
