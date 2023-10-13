@@ -23,8 +23,9 @@ import torch.utils.checkpoint
 from torch import nn
 from torch.nn import BCEWithLogitsLoss, CrossEntropyLoss, MSELoss
 
-from ...activations import ACT2FN
-from ...modeling_outputs import (
+from transformers.activations import ACT2FN
+
+from transformers.modeling_outputs import (
     BaseModelOutput,
     BaseModelOutputWithPastAndCrossAttentions,
     CausalLMOutputWithCrossAttentions,
@@ -33,8 +34,8 @@ from ...modeling_outputs import (
     Seq2SeqQuestionAnsweringModelOutput,
     Seq2SeqSequenceClassifierOutput,
 )
-from ...modeling_utils import PreTrainedModel
-from ...utils import (
+from transformers.modeling_utils import PreTrainedModel
+from transformers.utils import (
     add_code_sample_docstrings,
     add_end_docstrings,
     add_start_docstrings,
@@ -42,8 +43,7 @@ from ...utils import (
     logging,
     replace_return_docstrings,
 )
-from .configuration_bart import BartConfig
-
+from transformers.models.bart.configuration_bart import BartConfig
 
 logger = logging.get_logger(__name__)
 
@@ -2740,3 +2740,8 @@ class MultiBartDecoder(BartPreTrainedModel):
             attentions=all_self_attns,
             cross_attentions=all_cross_attentions,
         )
+
+
+BART_MODEL = {
+    1: BartForConditionalStrategyGeneration
+}

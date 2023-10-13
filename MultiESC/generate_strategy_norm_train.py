@@ -22,11 +22,11 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'
 
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
 from transformers import BartTokenizer, BartModel, BartConfig
-from hf_modeling.modeling_bart_old import BART_MODEL
-from data.Datareader import GenerateDataset2 as BartDataset, get_stratege
+from hf_modeling.modeling_bart import BART_MODEL
+from data.data_handler import GenerateDataset as BartDataset, get_strategy
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name_or_path", default='bart-base',type=str)
+parser.add_argument("--model_name_or_path", default='facebook/bart-base',type=str)
 # parser.add_argument("--dataset", default="lcsts",type=str)
 parser.add_argument("--lr2",default=1e-4,type=float)
 parser.add_argument("--do_train",default=True)
@@ -97,7 +97,7 @@ print("args.model_name_or_path: ", args.model_name_or_path)
 ###################
 # Dataset and model ready
 ###################
-strategies = get_stratege('../new_strategy.json', norm=True)
+strategies = get_strategy('../new_strategy.json', norm=True)
 strategy_list = [v for k,v in enumerate(strategies)]
 BartForConditionalGeneration = BART_MODEL[args.model_type]
 tokenizer = BartTokenizer.from_pretrained(args.model_name_or_path)
@@ -230,7 +230,7 @@ def get_optimer(model, second_parameter, train_parser):
 ###################
 def train(args):
     # assert isinstance(args.use_pretrain,bool),print(type(args.use_pretrain))
-    training_args = train_parser.parse_dict(vars(args))[0]
+    training_args = train_parser.parse_dict(args.__dict__, allow_extra_keys=True)[0]
     sencond_parameters = []
     if args.not_pretrain:
         model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_name_or_path))

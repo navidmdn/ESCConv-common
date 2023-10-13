@@ -103,6 +103,19 @@ class EmotionalIndex():
         assert len(emotion_list) == len(sentence)
         return emotion_list
 
+    def get_one_sentence_vad_weights(self, sentence):
+        """
+        returns a list of VAD emotions for each word in the sentence that is present
+        inside the VAD dictionary
+        """
+        emotion_list = []
+        for s in sentence:
+            s = s.replace('Ġ', '')
+            if s in self.vad_dict:
+                # todo: what is the type of values in vad dict?
+                emotion_list.append(self.vad_dict[s])
+        return emotion_list
+
 ######################
 #  predict feedback
 ######################
