@@ -239,13 +239,13 @@ def train(args):
         model, loading_info = BartForConditionalGeneration.from_pretrained(args.model_name_or_path, output_loading_info=True)
         # todo: what are missing keys?!
         sencond_parameters = loading_info['missing_keys']
-
-        print("we use pretrain")
+        print("using a pretrained model")
         # assert False
     my_optim = get_optimer(model, sencond_parameters, training_args)
     model.resize_token_embeddings(len(tokenizer))
     model.config.max_length = args.generation_max_length
     max_target_length = args.generation_max_length - 1
+
     assert isinstance(args.with_strategy, bool), print("with_strategy's type is: ", type(args.with_strategy))
     train_dataset = BartDataset(args.data_type, args.train_file, tokenizer, max_source_len=args.max_source_length,
                                 max_target_len=max_target_length, with_strategy=args.with_strategy,

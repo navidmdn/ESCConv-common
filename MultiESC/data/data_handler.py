@@ -265,6 +265,7 @@ class PredictFeedBackDataset(Dataset):
 # model_type :{ 0: norm_bert   1: hie_bert  2: norm_strategy 3: hie_strategy  4: norm_sentence  5: hie_sentence.}
 ###################
 
+#todo: write data handler again with hf dataset api
 class GenerateDataset(Dataset):
 
     def __init__(self, model_type, file_path, tokenizer: BartTokenizer, strategy2id=None, max_source_len=510, max_target_len=4, each_sentence_length=32, sentence_num=64, add_cause=False, with_strategy=False, lookahead=False):
@@ -290,8 +291,11 @@ class GenerateDataset(Dataset):
             9: self.get_norm_gpt_generate_input,
         }
         data = load_json(file_path)
+        print(f"parsing {file_path} file")
         # todo: check sep token in BART
         self.sep_token = self.tokenizer.sep_token if self.tokenizer.sep_token is not None else " "
+        print(f"setting {self.sep_token} as sep token")
+
         self.total_data = []
         self.is_train = 'train' in file_path
 
