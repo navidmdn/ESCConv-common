@@ -6,11 +6,13 @@ import os
 import random
 import time
 from collections import defaultdict
+from datasets import load_dataset
 import numpy as np
 import torch
 import transformers
 from transformers import (AutoConfig, AutoModel, BertTokenizer,BertForTokenClassification, HfArgumentParser,DataCollatorForSeq2Seq,
                           Seq2SeqTrainingArguments, Trainer, TrainerCallback,AutoModelForSeq2SeqLM, set_seed)
+from transformers import BartForConditionalGeneration
 from strategy_trainer import Seq2SeqTrainer
 from transformers.trainer_utils import is_main_process
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
@@ -23,7 +25,7 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
 from transformers import BartTokenizer, BartModel, BartConfig
 from hf_modeling.modeling_bart import BART_MODEL
-from data.data_handler import GenerateDataset as BartDataset, get_strategy
+from data.data_handler import construct_conversational_dataset, get_strategy, sequence_only_strategy_generation_tokenization
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--model_name_or_path", default='facebook/bart-base',type=str)
@@ -53,13 +55,15 @@ parser.add_argument("--save_strategy", default="epoch", type=str)
 parser.add_argument("--load_best_model_at_end", default=True)
 parser.add_argument("--ignore_pad_token_for_loss", default=True)
 parser.add_argument("--predict_with_generate", default=True)
-
+parser.add_argument("--dialogue_history_max_token_length", default=400, type=int)
 parser.add_argument("--data_type", default=4, type=int)
 parser.add_argument("--model_type", default=0, type=int) # 0 norm bart  2 hierarchical bart
 parser.add_argument("--sen_num", default=64, type=int)
-parser.add_argument("--with_cause",action="store_true")
+parser.add_argument("--with_cause", action="store_true")
 parser.add_argument("--not_pretrain", action="store_true")
 parser.add_argument("--config_path", default='../../hf_modeling/transformer_config', type=str)
+parser.add_argument("--max_strategy_lookahead", default=4, type=int)
+parser.add_argument("--report_to", default="tensorboard")
 
 parser.add_argument("--with_strategy",action="store_true")
 # save_strategy="epoch",load_best_model_at_end=True
@@ -99,7 +103,8 @@ print("args.model_name_or_path: ", args.model_name_or_path)
 ###################
 strategies = get_strategy('../new_strategy.json', norm=True)
 strategy_list = [v for k,v in enumerate(strategies)]
-BartForConditionalGeneration = BART_MODEL[args.model_type]
+# BartForConditionalGeneration = BART_MODEL[args.model_type]
+model = BartForConditionalGeneration.from_pretrained(args.model_name_or_path)
 tokenizer = BartTokenizer.from_pretrained(args.model_name_or_path)
 tokenizer.add_tokens(strategy_list)
 # model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_name_or_path))
@@ -228,6 +233,7 @@ def get_optimer(model, second_parameter, train_parser):
 ###################
 # training
 ###################
+
 def train(args):
     # assert isinstance(args.use_pretrain,bool),print(type(args.use_pretrain))
     training_args = train_parser.parse_dict(args.__dict__, allow_extra_keys=True)[0]
@@ -247,29 +253,42 @@ def train(args):
     max_target_length = args.generation_max_length - 1
 
     assert isinstance(args.with_strategy, bool), print("with_strategy's type is: ", type(args.with_strategy))
-    train_dataset = BartDataset(args.data_type, args.train_file, tokenizer, max_source_len=args.max_source_length,
-                                max_target_len=max_target_length, with_strategy=args.with_strategy,
-                                sentence_num=args.sen_num, add_cause=args.with_cause)
-    valid_dataset = BartDataset(args.data_type, args.validation_file, tokenizer, max_source_len=args.max_source_length,
-                                max_target_len=max_target_length, with_strategy=args.with_strategy,
-                                sentence_num=args.sen_num, add_cause=args.with_cause)
-    test_dataset = BartDataset(args.data_type, args.test_file, tokenizer, max_source_len=args.max_source_length,
-                               max_target_len=max_target_length, with_strategy=args.with_strategy,
-                               sentence_num=args.sen_num, add_cause=args.with_cause)
-    # print(len(train_dataset), len(valid_dataset), len(test_dataset))
-    #
+
+    train_path = construct_conversational_dataset(args.train_file, tokenizer, with_strategy=args.with_strategy,
+                                     add_cause=args.with_cause)
+    val_path = construct_conversational_dataset(args.validation_file, tokenizer, with_strategy=args.with_strategy,
+                                     add_cause=args.with_cause)
+    test_path = construct_conversational_dataset(args.test_file, tokenizer, with_strategy=args.with_strategy,
+                                     add_cause=args.with_cause)
+
+    dataset = load_dataset('json', data_files={'train': train_path, 'val': val_path, 'test': test_path})
+    dataset = dataset.map(sequence_only_strategy_generation_tokenization, batched=False, num_proc=4,
+                          fn_kwargs={'tokenizer': tokenizer, 'max_length': args.dialogue_history_max_token_length,
+                                     'target_max_length': args.max_strategy_lookahead})
+
+    train_dataset = dataset['train']
+    valid_dataset = dataset['val']
+    test_dataset = dataset['test']
+
+    print(dataset)
+
+    data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, label_pad_token_id=-100,
+                                           padding='longest', max_length=args.dialogue_history_max_token_length)
+
+    print(data_collator)
     # set_log(training_args)
-    # trainer = Seq2SeqTrainer(
-    #     model=model,
-    #     args=training_args,
-    #     train_dataset=train_dataset,
-    #     eval_dataset=valid_dataset,
-    #     tokenizer=tokenizer,
-    #     compute_metrics=compute_metrics,
-    #     optimizers=(my_optim, None),
-    # )
-    #
-    # train_result = trainer.train()
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_dataset,
+        eval_dataset=valid_dataset,
+        tokenizer=tokenizer,
+        data_collator=data_collator,
+        compute_metrics=compute_metrics,
+        optimizers=(my_optim, None),
+    )
+
+    train_result = trainer.train()
     # trainer.save_model()  # Saves the tokenizer too for easy upload
     # metrics = train_result.metrics
     # predict_metrics1 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
@@ -292,6 +311,8 @@ def train(args):
     # trainer.save_metrics("train", metrics)
     # trainer.save_state()
     # return predict_metrics1, predict_metrics4
+
+
 if __name__ == '__main__':
     '''
     CUDA_VISIBLE_DEVICES=0,1 python generate_strategy_norm.py --data_type=3 --model_type=1  --output_dir=./output  --learning_rate=2e-5  --num_train_epochs=15 --lr2=2e-5 --with_cause --with_strategy

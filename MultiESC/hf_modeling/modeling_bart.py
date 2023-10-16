@@ -2234,6 +2234,7 @@ class BartModelForStrategy(BartPreTrainedModel):
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
 
+
         assert len(encoder_outputs) == 2, print("encoder_outputs_length", len(encoder_outputs))
         #todo: why?
         history_mask = torch.sum(dial_history_attention_mask, -1)  # bs * sen_num

@@ -30,7 +30,7 @@ Download it and save in the folder ./MultiESC/metric
 1. Train the strategy sequence predictor. The model will be saved in ./final_output/bart_output.
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python generate_strategy_norm_train.py --data_type=3 --model_type=1  --output_dir=./final_output/bart_output  --learning_rate=2e-5  --num_train_epochs=15 --lr2=2e-5 --with_cause --with_strategy
+CUDA_VISIBLE_DEVICES=0,1 python generate_strategy_trainer.py --data_type=3 --model_type=1  --output_dir=./final_output/bart_output  --learning_rate=2e-5  --num_train_epochs=15 --lr2=2e-5 --with_cause --with_strategy
 ```
 
 2. Data augmentation for training the feedback predictor. The augmented data will be save in ./final_data/{train， valid,test}_extend_beam*.pk.

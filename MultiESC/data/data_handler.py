@@ -11,6 +11,7 @@ from collections import defaultdict
 from sklearn.metrics import accuracy_score
 from typing import List, Dict
 from datasets import load_dataset
+from transformers import DataCollator
 
 
 
@@ -63,7 +64,8 @@ def construct_conversational_dataset(
         tokenizer: BartTokenizer,
         add_cause: bool = False,
         with_strategy: bool = False,
-):
+        load_from_cache: bool = True,
+) -> str:
 
     split = 'train'
     if 'valid' in file_path:
@@ -71,12 +73,11 @@ def construct_conversational_dataset(
     elif 'test' in file_path:
         split = 'test'
 
-    cached_preprocessed_file = f"preprocessed_{split}.json"
+    cached_preprocessed_file = file_path.replace(split, f"preprocessed_{split}")
 
-    if os.path.exists(cached_preprocessed_file):
-        dataset = load_dataset('json', data_files={split: cached_preprocessed_file})[split]
+    if os.path.exists(cached_preprocessed_file) and load_from_cache:
         print(f"loading preprocessed {split} dataset from {cached_preprocessed_file}")
-        return dataset
+        return cached_preprocessed_file
 
     data = load_json(file_path)
     print(f"parsing {file_path} file")
@@ -179,10 +180,32 @@ def construct_conversational_dataset(
 
                 history.append(utt)
 
-    random_idx = random.randint(0, len(total_data) - 1)
-    print(f'printing training example {random_idx}:')
-    print(total_data[random_idx])
+    # random_idx = random.randint(0, len(total_data) - 1)
+    # print(f'printing training example {random_idx}:')
+    # print(total_data[random_idx])
 
-    write_json(file_path.replace(split, f"preprocessed_{split}.json"), total_data)
-    return total_data
+    write_json(cached_preprocessed_file, total_data)
+    return cached_preprocessed_file
 
+
+def sequence_only_strategy_generation_tokenization(example, tokenizer, max_length, target_max_length):
+    history = example['history']
+    target = example['future_strategy']
+    full_text = tokenizer.sep_token.join(history)
+
+    inputs = tokenizer(full_text, add_special_tokens=True, max_length=max_length, truncation=True)
+    labels = tokenizer(target, add_special_tokens=False, max_length=target_max_length, truncation=True)
+
+    return {
+        'input_ids': inputs['input_ids'],
+        'attention_mask': inputs['attention_mask'],
+        'labels': labels['input_ids'],
+    }
+
+
+# class CustomDataCollator(DataCollator):
+#     def __init__(self, tokenizer):
+#         self.tokenizer = tokenizer
+#
+#     def sequence_only_strategy_generation_collator(self, batch):
+#         pass
