@@ -68,9 +68,9 @@ args.output_dir = f'{args.output_dir}/feedback_model'
 
 strateges = get_stratege('../new_strategy.json', norm=True)
 stratege2id = {v: k for k, v in enumerate(strateges)}
-train_path = args.data_dir + 'train.txt'
-val_path = args.data_dir + 'valid.txt'
-test_path = args.data_dir + 'test.txt'
+train_path = args.data_dir + 'train.json'
+val_path = args.data_dir + 'valid.json'
+test_path = args.data_dir + 'test.json'
 tokenizer = BertTokenizer.from_pretrained(args.pretrain_model, use_fast=False)
 tokenizer.add_tokens(list(stratege2id.keys()))
 

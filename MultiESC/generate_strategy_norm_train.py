@@ -32,9 +32,9 @@ parser.add_argument("--lr2",default=1e-4,type=float)
 parser.add_argument("--do_train",default=True)
 parser.add_argument("--do_eval",default=True)
 parser.add_argument("--do_predict",default=True)
-parser.add_argument("--train_file",default="./data/train.txt",type=str)
-parser.add_argument("--validation_file",default="./data/valid.txt",type=str)
-parser.add_argument("--test_file",default="./data/test.txt",type=str)
+parser.add_argument("--train_file",default="./data/train.json",type=str)
+parser.add_argument("--validation_file",default="./data/valid.json",type=str)
+parser.add_argument("--test_file",default="./data/test.json",type=str)
 parser.add_argument("--output_dir",default="./output/",type=str)
 parser.add_argument("--per_device_train_batch_size", default=3, type=int)
 parser.add_argument("--per_device_eval_batch_size", default=1, type=int)
@@ -256,42 +256,42 @@ def train(args):
     test_dataset = BartDataset(args.data_type, args.test_file, tokenizer, max_source_len=args.max_source_length,
                                max_target_len=max_target_length, with_strategy=args.with_strategy,
                                sentence_num=args.sen_num, add_cause=args.with_cause)
-    print(len(train_dataset), len(valid_dataset), len(test_dataset))
-
-    set_log(training_args)
-    trainer = Seq2SeqTrainer(
-        model=model,
-        args=training_args,
-        train_dataset=train_dataset,
-        eval_dataset=valid_dataset,
-        tokenizer=tokenizer,
-        compute_metrics=compute_metrics,
-        optimizers=(my_optim, None),
-    )
-
-    train_result = trainer.train()
-    trainer.save_model()  # Saves the tokenizer too for easy upload
-    metrics = train_result.metrics
-    predict_metrics1 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
-                                        num_beams=1)
-    predict_metrics2 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
-                                        num_beams=2)
-    predict_metrics3 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
-                                        num_beams=3)
-    predict_metrics4 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
-                                       num_beams=4)
-    aa = [predict_metrics1, predict_metrics2, predict_metrics3, predict_metrics4]
-    for i in range(4):
-        tmp_i = i+1
-        print(f"beam={tmp_i}, predict_metrics: ", aa[i])
-        print('###')
-
-    # print("beam=4, predict_metrics: ", predict_metrics)
-    # print("beam=1, predict_metrics2: ", predict_metrics2)
-    trainer.log_metrics("train", metrics)
-    trainer.save_metrics("train", metrics)
-    trainer.save_state()
-    return predict_metrics1, predict_metrics4
+    # print(len(train_dataset), len(valid_dataset), len(test_dataset))
+    #
+    # set_log(training_args)
+    # trainer = Seq2SeqTrainer(
+    #     model=model,
+    #     args=training_args,
+    #     train_dataset=train_dataset,
+    #     eval_dataset=valid_dataset,
+    #     tokenizer=tokenizer,
+    #     compute_metrics=compute_metrics,
+    #     optimizers=(my_optim, None),
+    # )
+    #
+    # train_result = trainer.train()
+    # trainer.save_model()  # Saves the tokenizer too for easy upload
+    # metrics = train_result.metrics
+    # predict_metrics1 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
+    #                                     num_beams=1)
+    # predict_metrics2 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
+    #                                     num_beams=2)
+    # predict_metrics3 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
+    #                                     num_beams=3)
+    # predict_metrics4 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
+    #                                    num_beams=4)
+    # aa = [predict_metrics1, predict_metrics2, predict_metrics3, predict_metrics4]
+    # for i in range(4):
+    #     tmp_i = i+1
+    #     print(f"beam={tmp_i}, predict_metrics: ", aa[i])
+    #     print('###')
+    #
+    # # print("beam=4, predict_metrics: ", predict_metrics)
+    # # print("beam=1, predict_metrics2: ", predict_metrics2)
+    # trainer.log_metrics("train", metrics)
+    # trainer.save_metrics("train", metrics)
+    # trainer.save_state()
+    # return predict_metrics1, predict_metrics4
 if __name__ == '__main__':
     '''
     CUDA_VISIBLE_DEVICES=0,1 python generate_strategy_norm.py --data_type=3 --model_type=1  --output_dir=./output  --learning_rate=2e-5  --num_train_epochs=15 --lr2=2e-5 --with_cause --with_strategy

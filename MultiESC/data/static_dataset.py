@@ -2,9 +2,9 @@ import pickle
 
 from Datareader import load_json
 from collections import defaultdict, Counter
-# train_data = load_json('train.txt')
-# valid_data = load_json('valid.txt')
-# test_data = load_json('test.txt')
+# train_data = load_json('train.json')
+# valid_data = load_json('valid.json')
+# test_data = load_json('test.json')
 
 def static_feedback(data_list):
     feedback_list = []
@@ -25,9 +25,9 @@ MODEL_PATH = '../hf_modeling/bart-base'
 tot_strategy = get_stratege('../new_strategy.json',norm=True)
 strategy2id = {v:k for k,v in enumerate(tot_strategy)}
 tokenizer = BartTokenizer.from_pretrained(MODEL_PATH)
-train_data_set = GenerateDataset2(4,'./data/train.txt',tokenizer,None,add_cause=True, with_strategy=True)
-valid_data_set = GenerateDataset2(4,'./data/valid.txt',tokenizer,None,add_cause=True, with_strategy=True)
-test_data_set = GenerateDataset2(4,'./data/test.txt',tokenizer,None,add_cause=True, with_strategy=True)
+train_data_set = GenerateDataset2(4,'./data/train.json',tokenizer,None,add_cause=True, with_strategy=True)
+valid_data_set = GenerateDataset2(4,'./data/valid.json',tokenizer,None,add_cause=True, with_strategy=True)
+test_data_set = GenerateDataset2(4,'./data/test.json',tokenizer,None,add_cause=True, with_strategy=True)
 
 
 ### 转移到未来一个strategy
