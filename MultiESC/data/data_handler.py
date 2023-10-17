@@ -184,7 +184,8 @@ def construct_conversational_dataset(
     # print(f'printing training example {random_idx}:')
     # print(total_data[random_idx])
 
-    write_json(cached_preprocessed_file, total_data)
+    # todo: limiting just for test
+    write_json(cached_preprocessed_file, total_data[:50])
     return cached_preprocessed_file
 
 
@@ -194,7 +195,7 @@ def sequence_only_strategy_generation_tokenization(example, tokenizer, max_lengt
     full_text = tokenizer.sep_token.join(history)
 
     inputs = tokenizer(full_text, add_special_tokens=True, max_length=max_length, truncation=True)
-    labels = tokenizer(target, add_special_tokens=False, max_length=target_max_length, truncation=True)
+    labels = tokenizer(target, add_special_tokens=True, max_length=target_max_length, truncation=True)
 
     return {
         'input_ids': inputs['input_ids'],

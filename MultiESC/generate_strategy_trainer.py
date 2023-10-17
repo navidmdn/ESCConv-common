@@ -1,80 +1,78 @@
 import argparse
-import copy
-import json
 import logging
 import os
 import random
-import time
-from collections import defaultdict
-from datasets import load_dataset
-import numpy as np
-import torch
-import transformers
-from transformers import (AutoConfig, AutoModel, BertTokenizer,BertForTokenClassification, HfArgumentParser,DataCollatorForSeq2Seq,
-                          Seq2SeqTrainingArguments, Trainer, TrainerCallback,AutoModelForSeq2SeqLM, set_seed)
-from transformers import BartForConditionalGeneration
-from strategy_trainer import Seq2SeqTrainer
-from transformers.trainer_utils import is_main_process
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score
-from collections import Counter
-from sklearn.metrics import accuracy_score
 import sys
+
+import numpy as np
+import transformers
+from datasets import load_dataset
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_recall_fscore_support
+from transformers import BartForConditionalGeneration
+from transformers import (HfArgumentParser, DataCollatorForSeq2Seq,
+                          Seq2SeqTrainingArguments)
+from transformers.trainer_utils import is_main_process
+
+# from strategy_trainer import Seq2SeqTrainer
+from transformers import Seq2SeqTrainer
 
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '../..'))
 
 # from modeling_cpt import CPTModel, CPTForConditionalGeneration
-from transformers import BartTokenizer, BartModel, BartConfig
-from hf_modeling.modeling_bart import BART_MODEL
-from data.data_handler import construct_conversational_dataset, get_strategy, sequence_only_strategy_generation_tokenization
+from transformers import BartTokenizer, BartConfig
+from data.data_handler import construct_conversational_dataset, get_strategy, \
+    sequence_only_strategy_generation_tokenization
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--model_name_or_path", default='facebook/bart-base',type=str)
+parser.add_argument("--model_name_or_path", default='facebook/bart-base', type=str)
 # parser.add_argument("--dataset", default="lcsts",type=str)
-parser.add_argument("--lr2",default=1e-4,type=float)
-parser.add_argument("--do_train",default=True)
-parser.add_argument("--do_eval",default=True)
-parser.add_argument("--do_predict",default=True)
-parser.add_argument("--train_file",default="./data/train.json",type=str)
-parser.add_argument("--validation_file",default="./data/valid.json",type=str)
-parser.add_argument("--test_file",default="./data/test.json",type=str)
-parser.add_argument("--output_dir",default="./output/",type=str)
-parser.add_argument("--per_device_train_batch_size", default=3, type=int)
-parser.add_argument("--per_device_eval_batch_size", default=1, type=int)
+parser.add_argument("--lr2", default=1e-4, type=float)
+parser.add_argument("--do_train", default=True)
+parser.add_argument("--do_eval", default=True)
+parser.add_argument("--do_predict", default=True)
+parser.add_argument("--train_file", default="./data/train.json", type=str)
+parser.add_argument("--validation_file", default="./data/valid.json", type=str)
+parser.add_argument("--test_file", default="./data/test.json", type=str)
+parser.add_argument("--output_dir", default="./output/", type=str)
+parser.add_argument("--per_device_train_batch_size", default=8, type=int)
+parser.add_argument("--per_device_eval_batch_size", default=8, type=int)
 parser.add_argument("--overwrite_output_dir", action="store_true")
 parser.add_argument("--warmup_ratio", default=0.0, type=float)
-parser.add_argument("--max_source_length", default=512, type=int)
-parser.add_argument("--generation_max_length", default=4, type=int) # 这里可以改
+parser.add_argument("--max_source_length", default=400, type=int)
+parser.add_argument("--generation_max_length", default=4, type=int)
 parser.add_argument("--seed", default=42, type=int)
 parser.add_argument("--save_total_limit", default=5, type=int)
 parser.add_argument("--num_train_epochs", default=10, type=int)
-parser.add_argument("--metric_for_best_model", default="acc1",type=str)
+parser.add_argument("--metric_for_best_model", default="acc1", type=str)
 parser.add_argument("--greater_is_better", default=True)
-parser.add_argument("--evaluation_strategy", default="epoch",type=str)  # 注意一下这个地方
+parser.add_argument("--evaluation_strategy", default="steps", type=str)
+parser.add_argument("--logging_steps", default=5, type=int)
+parser.add_argument("--eval_steps", default=20, type=int)
 parser.add_argument("--learning_rate", default=2e-5, type=float)
-parser.add_argument("--save_strategy", default="epoch", type=str)
+parser.add_argument("--save_strategy", default="steps", type=str)
 parser.add_argument("--load_best_model_at_end", default=True)
 parser.add_argument("--ignore_pad_token_for_loss", default=True)
 parser.add_argument("--predict_with_generate", default=True)
-parser.add_argument("--dialogue_history_max_token_length", default=400, type=int)
 parser.add_argument("--data_type", default=4, type=int)
-parser.add_argument("--model_type", default=0, type=int) # 0 norm bart  2 hierarchical bart
+parser.add_argument("--model_type", default=0, type=int)  # 0 norm bart  2 hierarchical bart
 parser.add_argument("--sen_num", default=64, type=int)
 parser.add_argument("--with_cause", action="store_true")
 parser.add_argument("--not_pretrain", action="store_true")
 parser.add_argument("--config_path", default='../../hf_modeling/transformer_config', type=str)
-parser.add_argument("--max_strategy_lookahead", default=4, type=int)
 parser.add_argument("--report_to", default="tensorboard")
+parser.add_argument("--with_strategy", action="store_true")
+parser.add_argument("--use_mps_device", action="store_true")
 
-parser.add_argument("--with_strategy",action="store_true")
+
 # save_strategy="epoch",load_best_model_at_end=True
 args = parser.parse_args()
-
 arg_dict = args.__dict__
 print(arg_dict)
 logger = logging.getLogger(__name__)
 
-
 train_parser = HfArgumentParser(Seq2SeqTrainingArguments)
+
 
 def set_log(training_args):
     logging.basicConfig(
@@ -95,36 +93,39 @@ def set_log(training_args):
         transformers.utils.logging.set_verbosity_info()
     logger.info("Training/evaluation parameters %s", training_args)
 
-print("args.model_name_or_path: ", args.model_name_or_path)
 
+print("args.model_name_or_path: ", args.model_name_or_path)
 
 ###################
 # Dataset and model ready
 ###################
 strategies = get_strategy('../new_strategy.json', norm=True)
-strategy_list = [v for k,v in enumerate(strategies)]
+strategy_list = [v for k, v in enumerate(strategies)]
 # BartForConditionalGeneration = BART_MODEL[args.model_type]
 model = BartForConditionalGeneration.from_pretrained(args.model_name_or_path)
 tokenizer = BartTokenizer.from_pretrained(args.model_name_or_path)
 tokenizer.add_tokens(strategy_list)
-# model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_name_or_path))
 
+
+# model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_name_or_path))
 
 
 ###################
 # vaildation and test metrics
 ###################
-import nltk
-import metric
 
 # todo: what are acc-n?
-def clac_metric2(decoder_preds, decoder_labels, no_glove=False):
+def clac_metric2(preds, labels, no_glove=False):
+    """
+    calculates the accuracy for the first, second and third predicted strategies
+    then predicts precision recall and so on for the first predicted strategy only
+    """
     # ref_list = []
     # hyp_list = []
-    acc1, acc2, acc3 = 0.,0.,0.
+    acc1, acc2, acc3 = 0., 0., 0.
     tot1, tot2, tot3 = 1., 1., 1.
     label, predict = [], []
-    for ref, hyp in zip(decoder_labels, decoder_preds):
+    for ref, hyp in zip(labels, preds):
         ref = ref.split()
         hyp = hyp.split()
         if len(hyp) >= 1:
@@ -134,35 +135,40 @@ def clac_metric2(decoder_preds, decoder_labels, no_glove=False):
             label.append(ref[0])
             predict.append(hyp[0])
         else:
-            if random.random()<0.1:
-                print("error: we predict nothing")
+            print("error: we predict nothing")
+
         if len(hyp) >= 2:
             if ref[0] in hyp[:2]:
                 acc2 += 1
             tot2 += 1
+
         if len(hyp) >= 3:
             if ref[0] in hyp[:3]:
                 acc3 += 1
             tot3 += 1
+
     metric_res = {
         "acc1": acc1 / tot1,
         "acc2": acc2 / tot2,
+        "acc3": acc3 / tot3,
     }
 
+    # calculates the accuracy of the predicted strategy
+    # todo: shouldn't it be equal to acc1?
     sk_acc = accuracy_score(label, predict)
     metric_res["sk_acc"] = sk_acc
-    precision_, recall_, macro_f1, _ = precision_recall_fscore_support(label, predict, average='macro')
-    precision, recall, micro_f1, _ = precision_recall_fscore_support(label, predict, average='micro')
-    precision_, recall_, weighted_f1, _ = precision_recall_fscore_support(label, predict, average='weighted')
-    ca_precision_, ca_recall_, ca_f1, _ = precision_recall_fscore_support(label, predict)
+    precision, recall, macro_f1, _ = precision_recall_fscore_support(label, predict, average='macro')
+    _, _, micro_f1, _ = precision_recall_fscore_support(label, predict, average='micro')
+    _, _, weighted_f1, _ = precision_recall_fscore_support(label, predict, average='weighted')
+    _, _, ca_f1, _ = precision_recall_fscore_support(label, predict)
 
     metric_res['micro_f1'] = micro_f1
     metric_res['macro_f1'] = macro_f1
     metric_res['weighted_f1'] = weighted_f1
     for i in range(len(ca_f1)):
         metric_res[f'f1_{i}'] = ca_f1[i]
-    # metric_res['precision'] = precision
-    # metric_res['recall'] = recall
+    metric_res['precision'] = precision
+    metric_res['recall'] = recall
     return metric_res
 
 
@@ -171,14 +177,13 @@ def postprocess_text(preds, labels):
     labels = [label.strip() for label in labels]
     return preds, labels
 
-# 加上bleu的评测
+
 def compute_metrics(eval_preds):
     preds, labels = eval_preds
     if isinstance(preds, tuple):
         preds = preds[0]
         print("preds_0: ", len(preds[0]))
-    # print("one: before decoder")
-    # print("decoder_pred: ", preds[0:5])
+
     decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
     if args.ignore_pad_token_for_loss:
         # Replace -100 in the labels as we can't decode them.
@@ -187,20 +192,21 @@ def compute_metrics(eval_preds):
 
     # Some simple post-processing
     decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
-    my_metric = clac_metric2(decoder_preds=decoded_preds, decoder_labels=decoded_labels)
+    metrics = clac_metric2(preds=decoded_preds, labels=decoded_labels)
 
     x = random.sample(range(len(decoded_labels)), 5)
-    print("first is preds")
-    print(decoded_preds[x[0]], "####", decoded_labels[x[0]])
-    print(decoded_preds[x[1]], "####", decoded_labels[x[1]])
-    return my_metric
+    print("pred #### label")
+    for i in x:
+        print(decoded_preds[i], "####", decoded_labels[i])
+
+    return metrics
+
 
 ###################
 # optimazer and lr
 ###################
-from transformers.trainer_pt_utils import get_parameter_names
-from torch import nn
 from transformers.optimization import AdamW, Adafactor
+
 
 # todo: what are we separating?
 def get_optimer(model, second_parameter, train_parser):
@@ -230,6 +236,7 @@ def get_optimer(model, second_parameter, train_parser):
     optimizer = optimizer_cls(optimizer_grouped_parameters, **optimizer_kwargs)
     return optimizer
 
+
 ###################
 # training
 ###################
@@ -242,29 +249,32 @@ def train(args):
         model = BartForConditionalGeneration(BartConfig.from_pretrained(args.model_name_or_path))
         print('we do not use pretrain parameters')
     else:
-        model, loading_info = BartForConditionalGeneration.from_pretrained(args.model_name_or_path, output_loading_info=True)
+        model, loading_info = BartForConditionalGeneration.from_pretrained(args.model_name_or_path,
+                                                                           output_loading_info=True)
         # todo: what are missing keys?!
         sencond_parameters = loading_info['missing_keys']
         print("using a pretrained model")
         # assert False
-    my_optim = get_optimer(model, sencond_parameters, training_args)
+    optim = get_optimer(model, sencond_parameters, training_args)
     model.resize_token_embeddings(len(tokenizer))
     model.config.max_length = args.generation_max_length
+
+    # todo: why do we need this?
     max_target_length = args.generation_max_length - 1
 
     assert isinstance(args.with_strategy, bool), print("with_strategy's type is: ", type(args.with_strategy))
 
     train_path = construct_conversational_dataset(args.train_file, tokenizer, with_strategy=args.with_strategy,
-                                     add_cause=args.with_cause)
+                                                  add_cause=args.with_cause)
     val_path = construct_conversational_dataset(args.validation_file, tokenizer, with_strategy=args.with_strategy,
-                                     add_cause=args.with_cause)
+                                                add_cause=args.with_cause)
     test_path = construct_conversational_dataset(args.test_file, tokenizer, with_strategy=args.with_strategy,
-                                     add_cause=args.with_cause)
+                                                 add_cause=args.with_cause)
 
     dataset = load_dataset('json', data_files={'train': train_path, 'val': val_path, 'test': test_path})
     dataset = dataset.map(sequence_only_strategy_generation_tokenization, batched=False, num_proc=4,
-                          fn_kwargs={'tokenizer': tokenizer, 'max_length': args.dialogue_history_max_token_length,
-                                     'target_max_length': args.max_strategy_lookahead})
+                          fn_kwargs={'tokenizer': tokenizer, 'max_length': args.max_source_length,
+                                     'target_max_length': max_target_length})
 
     train_dataset = dataset['train']
     valid_dataset = dataset['val']
@@ -273,7 +283,7 @@ def train(args):
     print(dataset)
 
     data_collator = DataCollatorForSeq2Seq(tokenizer=tokenizer, model=model, label_pad_token_id=-100,
-                                           padding='longest', max_length=args.dialogue_history_max_token_length)
+                                           padding='longest', max_length=args.max_source_length)
 
     print(data_collator)
     # set_log(training_args)
@@ -285,12 +295,12 @@ def train(args):
         tokenizer=tokenizer,
         data_collator=data_collator,
         compute_metrics=compute_metrics,
-        optimizers=(my_optim, None),
+        optimizers=(optim, None),
     )
 
     train_result = trainer.train()
-    # trainer.save_model()  # Saves the tokenizer too for easy upload
-    # metrics = train_result.metrics
+    trainer.save_model()  # Saves the tokenizer too for easy upload
+    metrics = train_result.metrics
     # predict_metrics1 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
     #                                     num_beams=1)
     # predict_metrics2 = trainer.evaluate(test_dataset, metric_key_prefix="predict", max_length=args.generation_max_length,
