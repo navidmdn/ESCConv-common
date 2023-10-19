@@ -125,7 +125,7 @@ def construct_conversational_dataset(
                 assert len(save_s) > 0, print(tot_strategy, tmp_strategy_list)
                 tmp_history = copy.deepcopy(history)
                 if joint_strategy_utt:
-                    response = tmp_strategy + " " + sep_token + " " + text
+                    response = tmp_strategy + " " + text
                 else:
                     response = text
 
@@ -163,7 +163,7 @@ def construct_conversational_dataset(
                 tmp_strategy = norm_strategy(tmp_dic['strategy'])
                 if with_strategy:
                     # add strategy as control code to the history text
-                    tmp_sen = tmp_strategy + sep_token + text
+                    tmp_sen = tmp_strategy + " " + text
                     history.append(tmp_sen)
                 else:
                     history.append(text)
@@ -223,9 +223,9 @@ class InputPreprocessor:
     def joint_strategy_utterance_generation(self, example):
         history = example['history']
         target = example['response']
-        full_text = self.tokenizer.sep_token.join(history)
+        full_text = self.tokenizer.bos_token + self.tokenizer.sep_token.join(history) + self.tokenizer.sep_token
 
-        inputs = self.tokenizer(full_text, add_special_tokens=True, max_length=self.max_source_length, truncation=True)
+        inputs = self.tokenizer(full_text, add_special_tokens=False, max_length=self.max_source_length, truncation=True)
         labels = self.tokenizer(target, add_special_tokens=True, max_length=self.max_target_length, truncation=True)
 
         return {
@@ -250,6 +250,7 @@ def main(
 ):
     splits = ['train', 'valid', 'test']
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name_or_path)
+    tokenizer.add_special_tokens({'sep_token': '<sep>'})
     for split in splits:
         file_path = os.path.join(base_file_path, f"{split}.json")
         construct_conversational_dataset(

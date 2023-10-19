@@ -301,7 +301,6 @@ class DataTrainingArguments:
         },
     )
 
-
     def __post_init__(self):
         if (
                 self.dataset_name is None
@@ -487,7 +486,9 @@ def main():
 
     # retrieve strategy list for token control coding
     strategy_list = get_strategy(data_args.strategy_file, norm=True)
+    tokenizer.add_special_tokens({"sep_token": "<sep>"})
     tokenizer.add_tokens(strategy_list)
+
 
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
@@ -706,13 +707,10 @@ def main():
         precision, recall, macro_f1, _ = precision_recall_fscore_support(label, predict, average='macro')
         _, _, micro_f1, _ = precision_recall_fscore_support(label, predict, average='micro')
         _, _, weighted_f1, _ = precision_recall_fscore_support(label, predict, average='weighted')
-        _, _, ca_f1, _ = precision_recall_fscore_support(label, predict)
 
         metric_res['micro_f1'] = micro_f1
         metric_res['macro_f1'] = macro_f1
         metric_res['weighted_f1'] = weighted_f1
-        for i in range(len(ca_f1)):
-            metric_res[f'f1_{i}'] = ca_f1[i]
         metric_res['precision'] = precision
         metric_res['recall'] = recall
 
@@ -747,7 +745,6 @@ def main():
 
         return result_metrics
 
-
     # Override the decoding parameters of Seq2SeqTrainer
     training_args.generation_max_length = (
         training_args.generation_max_length
@@ -757,6 +754,11 @@ def main():
     training_args.generation_num_beams = (
         data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
     )
+
+    average_input_length = 0
+    input_ids = train_dataset['input_ids']
+    lens = [len(x) for x in input_ids]
+    logger.info("average input length: {}".format(sum(lens) / len(lens)))
 
     # Initialize our Trainer
     trainer = Seq2SeqTrainer(
