@@ -125,7 +125,7 @@ def construct_conversational_dataset(
                 assert len(save_s) > 0, print(tot_strategy, tmp_strategy_list)
                 tmp_history = copy.deepcopy(history)
                 if joint_strategy_utt:
-                    response = tmp_strategy + sep_token + text
+                    response = tmp_strategy + " " + sep_token + " " + text
                 else:
                     response = text
 

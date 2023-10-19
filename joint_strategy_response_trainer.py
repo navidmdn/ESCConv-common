@@ -18,6 +18,7 @@ Fine-tuning the library models for sequence to sequence.
 """
 # You can also adapt this script on your own sequence to sequence task. Pointers for this are left as comments.
 
+from collections import OrderedDict
 import logging
 import os
 import sys
@@ -665,46 +666,41 @@ def main():
 
         return preds, labels
 
+    strategy_ids = OrderedDict()
+    # reserve class 0 for anything other than strategies
+    for s in strategy_list:
+        strategy_ids[s] = len(strategy_ids) + 1
+
     def clac_pra_metric(preds, labels):
         """
-        calculates the accuracy for the first, second and third predicted strategies
-        then predicts precision recall and so on for the first predicted strategy only
+        calculates the accuracy for the predicted strategy
         """
         # ref_list = []
         # hyp_list = []
-        acc1, acc2, acc3 = 0., 0., 0.
-        tot1, tot2, tot3 = 1., 1., 1.
+        acc = 0
+        tot = 1e-5
+
         label, predict = [], []
         for ref, hyp in zip(labels, preds):
+
             ref = ref.split()
             hyp = hyp.split()
             if len(hyp) >= 1:
                 if ref[0] == hyp[0]:
-                    acc1 += 1
-                tot1 += 1
+                    acc += 1
+                tot += 1
                 label.append(ref[0])
                 predict.append(hyp[0])
             else:
-                print("error: we predict nothing")
-
-            if len(hyp) >= 2:
-                if ref[0] in hyp[:2]:
-                    acc2 += 1
-                tot2 += 1
-
-            if len(hyp) >= 3:
-                if ref[0] in hyp[:3]:
-                    acc3 += 1
-                tot3 += 1
+                print("generating empty string")
 
         metric_res = {
-            "acc1": acc1 / tot1,
-            "acc2": acc2 / tot2,
-            "acc3": acc3 / tot3,
+            "acc": acc / tot,
         }
 
-        # calculates the accuracy of the predicted strategy
-        # todo: shouldn't it be equal to acc1?
+        label = [0 if sid not in strategy_ids else strategy_ids[sid] for sid in label]
+        predict = [0 if sid not in strategy_ids else strategy_ids[sid] for sid in predict]
+
         sk_acc = accuracy_score(label, predict)
         metric_res["sk_acc"] = sk_acc
         precision, recall, macro_f1, _ = precision_recall_fscore_support(label, predict, average='macro')
@@ -719,6 +715,7 @@ def main():
             metric_res[f'f1_{i}'] = ca_f1[i]
         metric_res['precision'] = precision
         metric_res['recall'] = recall
+
         return metric_res
 
     def compute_metrics(eval_preds):
