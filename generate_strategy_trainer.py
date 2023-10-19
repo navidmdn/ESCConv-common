@@ -114,7 +114,6 @@ tokenizer.add_tokens(strategy_list)
 # vaildation and test metrics
 ###################
 
-# todo: what are acc-n?
 def clac_metric2(preds, labels, no_glove=False):
     """
     calculates the accuracy for the first, second and third predicted strategies

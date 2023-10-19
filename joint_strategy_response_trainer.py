@@ -21,6 +21,7 @@ Fine-tuning the library models for sequence to sequence.
 import logging
 import os
 import sys
+import random
 import warnings
 from dataclasses import dataclass, field
 from typing import Optional
@@ -28,9 +29,11 @@ from typing import Optional
 import datasets
 import evaluate
 import nltk  # Here to have a nice missing dependency error message early on
+from filelock import FileLock
 import numpy as np
 from datasets import load_dataset
-from filelock import FileLock
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import precision_recall_fscore_support
 
 import transformers
 from transformers import (
@@ -51,8 +54,7 @@ from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, is_offline_mode, send_example_telemetry
 from transformers.utils.versions import require_version
 
-from data.data_handler import construct_conversational_dataset, get_strategy, \
-    InputPreprocessor
+from data.data_handler import get_strategy, InputPreprocessor
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
 check_min_version("4.35.0.dev0")
@@ -289,6 +291,16 @@ class DataTrainingArguments:
         },
     )
 
+    strategy_file: Optional[str] = field(
+        default='./new_strategy.json',
+        metadata={
+            "help": (
+                "The file path of strategy file"
+            )
+        },
+    )
+
+
     def __post_init__(self):
         if (
                 self.dataset_name is None
@@ -472,6 +484,10 @@ def main():
         trust_remote_code=model_args.trust_remote_code,
     )
 
+    # retrieve strategy list for token control coding
+    strategy_list = get_strategy(data_args.strategy_file, norm=True)
+    tokenizer.add_tokens(strategy_list)
+
     # We resize the embeddings only when necessary to avoid index errors. If you are creating a model from scratch
     # on a small vocab and want a smaller embedding size, remove this test.
     embedding_size = model.get_input_embeddings().weight.shape[0]
@@ -484,6 +500,7 @@ def main():
         else:
             model.config.decoder_start_token_id = tokenizer.convert_tokens_to_ids(data_args.lang)
 
+    # todo: whats the decoder_start_token_id for BART
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
@@ -648,24 +665,91 @@ def main():
 
         return preds, labels
 
+    def clac_pra_metric(preds, labels):
+        """
+        calculates the accuracy for the first, second and third predicted strategies
+        then predicts precision recall and so on for the first predicted strategy only
+        """
+        # ref_list = []
+        # hyp_list = []
+        acc1, acc2, acc3 = 0., 0., 0.
+        tot1, tot2, tot3 = 1., 1., 1.
+        label, predict = [], []
+        for ref, hyp in zip(labels, preds):
+            ref = ref.split()
+            hyp = hyp.split()
+            if len(hyp) >= 1:
+                if ref[0] == hyp[0]:
+                    acc1 += 1
+                tot1 += 1
+                label.append(ref[0])
+                predict.append(hyp[0])
+            else:
+                print("error: we predict nothing")
+
+            if len(hyp) >= 2:
+                if ref[0] in hyp[:2]:
+                    acc2 += 1
+                tot2 += 1
+
+            if len(hyp) >= 3:
+                if ref[0] in hyp[:3]:
+                    acc3 += 1
+                tot3 += 1
+
+        metric_res = {
+            "acc1": acc1 / tot1,
+            "acc2": acc2 / tot2,
+            "acc3": acc3 / tot3,
+        }
+
+        # calculates the accuracy of the predicted strategy
+        # todo: shouldn't it be equal to acc1?
+        sk_acc = accuracy_score(label, predict)
+        metric_res["sk_acc"] = sk_acc
+        precision, recall, macro_f1, _ = precision_recall_fscore_support(label, predict, average='macro')
+        _, _, micro_f1, _ = precision_recall_fscore_support(label, predict, average='micro')
+        _, _, weighted_f1, _ = precision_recall_fscore_support(label, predict, average='weighted')
+        _, _, ca_f1, _ = precision_recall_fscore_support(label, predict)
+
+        metric_res['micro_f1'] = micro_f1
+        metric_res['macro_f1'] = macro_f1
+        metric_res['weighted_f1'] = weighted_f1
+        for i in range(len(ca_f1)):
+            metric_res[f'f1_{i}'] = ca_f1[i]
+        metric_res['precision'] = precision
+        metric_res['recall'] = recall
+        return metric_res
+
     def compute_metrics(eval_preds):
         preds, labels = eval_preds
         if isinstance(preds, tuple):
             preds = preds[0]
-        # Replace -100s used for padding as we can't decode them
-        preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
+            print("preds_0: ", len(preds[0]))
+
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
-        labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
+        if data_args.ignore_pad_token_for_loss:
+            # Replace -100 in the labels as we can't decode them.
+            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
         decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
         # Some simple post-processing
         decoded_preds, decoded_labels = postprocess_text(decoded_preds, decoded_labels)
+        result_metrics = clac_pra_metric(preds=decoded_preds, labels=decoded_labels)
 
         result = metric.compute(predictions=decoded_preds, references=decoded_labels, use_stemmer=True)
         result = {k: round(v * 100, 4) for k, v in result.items()}
         prediction_lens = [np.count_nonzero(pred != tokenizer.pad_token_id) for pred in preds]
         result["gen_len"] = np.mean(prediction_lens)
-        return result
+        result_metrics.update(result)
+
+        x = random.sample(range(len(decoded_labels)), 5)
+        print("pred #### label")
+        for i in x:
+            print(decoded_preds[i], "####", decoded_labels[i])
+
+        return result_metrics
+
 
     # Override the decoding parameters of Seq2SeqTrainer
     training_args.generation_max_length = (
@@ -750,7 +834,7 @@ def main():
                 with open(output_prediction_file, "w") as writer:
                     writer.write("\n".join(predictions))
 
-    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "summarization"}
+    kwargs = {"finetuned_from": model_args.model_name_or_path, "tasks": "seq2seq"}
     if data_args.dataset_name is not None:
         kwargs["dataset_tags"] = data_args.dataset_name
         if data_args.dataset_config_name is not None:

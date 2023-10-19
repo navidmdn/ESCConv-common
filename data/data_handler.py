@@ -58,6 +58,7 @@ def construct_conversational_dataset(
         tokenizer: BartTokenizer,
         add_cause: bool = False,
         with_strategy: bool = False,
+        joint_strategy_utt: bool = True,
         load_from_cache: bool = True,
 ) -> str:
 
@@ -123,7 +124,10 @@ def construct_conversational_dataset(
                 save_s = [x for x in tot_strategy[len(tmp_strategy_list):]].copy()
                 assert len(save_s) > 0, print(tot_strategy, tmp_strategy_list)
                 tmp_history = copy.deepcopy(history)
-                response = text
+                if joint_strategy_utt:
+                    response = tmp_strategy + sep_token + text
+                else:
+                    response = text
 
                 # todo: check if required later:
                 # if with_strategy and self.model_type > 4:
@@ -178,8 +182,7 @@ def construct_conversational_dataset(
     # print(f'printing training example {random_idx}:')
     # print(total_data[random_idx])
 
-    # todo: limiting just for test
-    write_json(cached_preprocessed_file, total_data[:50])
+    write_json(cached_preprocessed_file, total_data)
     return cached_preprocessed_file
 
 
@@ -197,14 +200,29 @@ class InputPreprocessor:
         self.max_target_length = max_target_length
 
         processing_functions = {
-            'joint_strategy_utterance_generation': self.sequence_only_strategy_generation_tokenization,
+            'joint_strategy_utterance_generation': self.joint_strategy_utterance_generation,
+            'strategy_generation': self.strategy_generation_tokenization,
         }
 
         self.preprocess = processing_functions[preprocessor_type]
 
-    def sequence_only_strategy_generation_tokenization(self, example):
+    def strategy_generation_tokenization(self, example):
         history = example['history']
         target = example['future_strategy']
+        full_text = self.tokenizer.sep_token.join(history)
+
+        inputs = self.tokenizer(full_text, add_special_tokens=True, max_length=self.max_source_length, truncation=True)
+        labels = self.tokenizer(target, add_special_tokens=True, max_length=self.max_target_length, truncation=True)
+
+        return {
+            'input_ids': inputs['input_ids'],
+            'attention_mask': inputs['attention_mask'],
+            'labels': labels['input_ids'],
+        }
+
+    def joint_strategy_utterance_generation(self, example):
+        history = example['history']
+        target = example['response']
         full_text = self.tokenizer.sep_token.join(history)
 
         inputs = self.tokenizer(full_text, add_special_tokens=True, max_length=self.max_source_length, truncation=True)
