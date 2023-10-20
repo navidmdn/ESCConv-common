@@ -26,6 +26,7 @@ import random
 import warnings
 from dataclasses import dataclass, field
 from typing import Optional
+from nltk.translate.bleu_score import sentence_bleu
 
 import datasets
 import evaluate
@@ -681,12 +682,18 @@ def main():
         acc = 0
         tot = 1e-5
 
+        ref_bleu, hyp_bleu = [], []
         label, predict = [], []
+
         for ref, hyp in zip(labels, preds):
 
             ref = ref.split()
             hyp = hyp.split()
+
             if len(hyp) >= 1:
+                ref_bleu.append(ref[1:])
+                hyp_bleu.append(hyp[1:])
+
                 if ref[0] == hyp[0]:
                     acc += 1
                 tot += 1
@@ -698,6 +705,20 @@ def main():
         metric_res = {
             "acc": acc / tot,
         }
+
+        if len(ref_bleu) > 0:
+            b4_sum = b3_sum = b2_sum = b1_sum = 0
+            for ref, hyp in zip(ref_bleu, hyp_bleu):
+                b4_sum += sentence_bleu([ref], hyp, weights=(0.25, 0.25, 0.25, 0.25))
+                b3_sum += sentence_bleu([ref], hyp, weights=(0.33, 0.33, 0.33))
+                b2_sum += sentence_bleu([ref], hyp, weights=(0.5, 0.5))
+
+            bleu_dict = {
+                'B4': b4_sum / len(ref_bleu),
+                'B3': b3_sum / len(ref_bleu),
+                'B2': b2_sum / len(ref_bleu),
+            }
+            metric_res.update(bleu_dict)
 
         label = [0 if sid not in strategy_ids else strategy_ids[sid] for sid in label]
         predict = [0 if sid not in strategy_ids else strategy_ids[sid] for sid in predict]
@@ -722,6 +743,7 @@ def main():
             preds = preds[0]
             print("preds_0: ", len(preds[0]))
 
+        preds = np.where(preds != -100, preds, tokenizer.pad_token_id)
         decoded_preds = tokenizer.batch_decode(preds, skip_special_tokens=True)
         if data_args.ignore_pad_token_for_loss:
             # Replace -100 in the labels as we can't decode them.
