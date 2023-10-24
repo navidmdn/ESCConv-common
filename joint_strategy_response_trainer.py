@@ -475,6 +475,9 @@ def main():
         # token=model_args.token,
         trust_remote_code=model_args.trust_remote_code,
     )
+    # keeping most recent conversations
+    tokenizer.truncation_side = 'left'
+
     model = AutoModelForSeq2SeqLM.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
@@ -673,6 +676,8 @@ def main():
     for s in strategy_list:
         strategy_ids[s] = len(strategy_ids) + 1
 
+
+    stemmer = nltk.stem.PorterStemmer()
     def clac_pra_metric(preds, labels):
         """
         calculates the accuracy for the predicted strategy
@@ -707,8 +712,14 @@ def main():
         }
 
         if len(ref_bleu) > 0:
-            b4_sum = b3_sum = b2_sum = b1_sum = 0
+            b4_sum = b3_sum = b2_sum = 0
             for ref, hyp in zip(ref_bleu, hyp_bleu):
+                ref = nltk.tokenize.word_tokenize(hyp)
+                hyp = nltk.tokenize.word_tokenize(ref)
+
+                ref = [stemmer.stem(w) for w in ref]
+                hyp = [stemmer.stem(w) for w in hyp]
+
                 b4_sum += sentence_bleu([ref], hyp, weights=(0.25, 0.25, 0.25, 0.25))
                 b3_sum += sentence_bleu([ref], hyp, weights=(0.33, 0.33, 0.33))
                 b2_sum += sentence_bleu([ref], hyp, weights=(0.5, 0.5))

@@ -49,7 +49,9 @@ def calculate_evaluation_metrics(responses, targets):
     return metric_res
 
 def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test_data_path):
+    # setting truncation side to keep last tokens of conversation
     tokenizer = AutoTokenizer.from_pretrained(base_model)
+    tokenizer.truncation_side = 'left'
     print("raw vocab size: ", len(tokenizer))
     # retrieve strategy list for token control coding
     strategy_list = get_strategy('new_strategy.json', norm=True)
@@ -76,13 +78,8 @@ def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test
         history = entry['history']
         target = entry['response']
         full_text = tokenizer.bos_token + tokenizer.sep_token.join(history) + tokenizer.sep_token
-        input_ids = tokenizer(full_text, add_special_tokens=False, truncation=False, return_tensors='pt').input_ids
-
-        # todo: load it from config
-        max_length = 512
-        if input_ids.shape[1] > max_length:
-            # truncate last part of the input
-            input_ids = input_ids[:, -max_length:]
+        input_ids = tokenizer(full_text, add_special_tokens=False, truncation=True,
+                              return_tensors='pt', max_length=512).input_ids
 
         outputs = model.generate(input_ids, max_length=256, num_beams=5, early_stopping=True)
         res = tokenizer.decode(outputs[0], skip_special_tokens=True)
