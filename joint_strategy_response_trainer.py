@@ -59,9 +59,9 @@ from transformers.utils.versions import require_version
 from data.data_handler import get_strategy, InputPreprocessor
 
 # Will error if the minimal version of Transformers is not installed. Remove at your own risks.
-check_min_version("4.35.0.dev0")
-
-require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/summarization/requirements.txt")
+# check_min_version("4.35.0.dev0")
+#
+# require_version("datasets>=1.8.0", "To fix: pip install -r examples/pytorch/summarization/requirements.txt")
 
 logger = logging.getLogger(__name__)
 
@@ -696,8 +696,8 @@ def main():
             hyp = hyp.split()
 
             if len(hyp) >= 1:
-                ref_bleu.append(ref[1:])
-                hyp_bleu.append(hyp[1:])
+                ref_bleu.append(" ".join(ref[1:]))
+                hyp_bleu.append(" ".join(hyp[1:]))
 
                 if ref[0] == hyp[0]:
                     acc += 1
@@ -711,11 +711,11 @@ def main():
             "acc": acc / tot,
         }
 
-        if len(ref_bleu) > 0:
+        if len(hyp_bleu) > 0:
             b4_sum = b3_sum = b2_sum = 0
             for ref, hyp in zip(ref_bleu, hyp_bleu):
-                ref = nltk.tokenize.word_tokenize(hyp)
-                hyp = nltk.tokenize.word_tokenize(ref)
+                ref = nltk.tokenize.word_tokenize(ref)
+                hyp = nltk.tokenize.word_tokenize(hyp)
 
                 ref = [stemmer.stem(w) for w in ref]
                 hyp = [stemmer.stem(w) for w in hyp]
@@ -771,7 +771,7 @@ def main():
         result["gen_len"] = np.mean(prediction_lens)
         result_metrics.update(result)
 
-        x = random.sample(range(len(decoded_labels)), 5)
+        x = random.sample(range(len(decoded_labels)), 3)
         print("pred #### label")
         for i in x:
             print(decoded_preds[i], "####", decoded_labels[i])

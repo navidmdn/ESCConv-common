@@ -19,8 +19,8 @@ def calculate_evaluation_metrics(responses, targets):
     for resp, target in zip(responses, targets):
         b4_sum = b3_sum = b2_sum = 0
 
-        ref = nltk.tokenize.word_tokenize(resp)
-        hyp = nltk.tokenize.word_tokenize(target)
+        ref = nltk.tokenize.word_tokenize(target)
+        hyp = nltk.tokenize.word_tokenize(resp)
 
         ref = [stemmer.stem(w) for w in ref]
         hyp = [stemmer.stem(w) for w in hyp]
