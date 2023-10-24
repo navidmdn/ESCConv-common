@@ -3,13 +3,13 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=20
 #SBATCH --mem=16G
-#SBATCH --time=06:00:00
+#SBATCH --time=24:00:00
 #SBATCH --job-name="joint-strategy-utt"
 #SBATCH --output=log1.out
 #SBATCH --partition=general-compute
 #SBATCH --qos=general-compute
 #SBATCH --account=rohini
-#SBATCH --gres=gpu:tesla_v100-pcie-32gb:2
+#SBATCH --gres=gpu:2
 
 echo "submitting job..."
 WANDB_ENTITY=navidmdn WANDB_PROJECT=joint_utt_strategy PYTHONPATH=. python joint_strategy_response_trainer.py --cache_dir "../hfcache" --train_file data/preprocessed_train.json \
