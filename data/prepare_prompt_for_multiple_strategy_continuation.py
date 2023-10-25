@@ -35,6 +35,8 @@ def prepare_prompt(data_json):
     situation = data_json['situation']
 
     history = data_json['dialog']
+    output_prompts = []
+    continuations = []
 
     prompt = "You are an emotional support counselor and here is the situation:\n\
     the help seeker has come to you with {emotion_type} from {problem_type}. The situation is as follows:\n\
@@ -61,26 +63,27 @@ def prepare_prompt(data_json):
                 strategy = annt['strategy'].lower()
             supporter_turn += 1
             if supporter_turn == random_break_point:
-                cont_strategy = random.choice(list(strategies.keys()))
-                while cont_strategy == strategy:
-                    cont_strategy = random.choice(list(strategies.keys()))
-                prompt += f"<strategy: {cont_strategy}>\n{speaker}: "
-                break
+                for cont_strategy in list(strategies.keys()):
+                    if cont_strategy == strategy:
+                        continue
+                    cur_prompt = prompt + f"<strategy: {cont_strategy}>\n{speaker}: "
+                    output_prompts.append(cur_prompt.format(
+                        emotion_type=emotion_type, problem_type=problem_type, situation=situation,
+                        cont_strategy=cont_strategy, cont_strategy_def=strategies[cont_strategy],))
+                    continuations.append(cont_strategy)
             prompt += f"<strategy: {strategy}>\n{speaker}: {content}\n\n"
         else:
             prompt += f"{speaker}: {content}\n\n"
 
-    prompt = prompt.format(emotion_type=emotion_type, problem_type=problem_type, situation=situation,
-                           cont_strategy=cont_strategy, cont_strategy_def=strategies[cont_strategy],)
-    return prompt, dial_hist, cont_strategy
+    return output_prompts, dial_hist, continuations
 
 
 prompts = []
 for entry in data:
-    prompt, dial_hist, strategy = prepare_prompt(entry)
-    prompts.append({'prompt': prompt, 'dialog_history': dial_hist, 'strategy': strategy})
+    output_prompts, dial_hist, continuations = prepare_prompt(entry)
+    prompts.append({'prompt': output_prompts, 'dialog_history': dial_hist, 'strategy': continuations})
 
 write_json('./train_prompt.json', prompts)
 
 i = random.randint(0, len(prompts)-1)
-print(prompts[i]['prompt'])
+print(prompts[i]['prompt'][1])
