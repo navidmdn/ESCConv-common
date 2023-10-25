@@ -1,3 +1,4 @@
+import pandas as pd
 import fire
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from data.data_handler import get_strategy, load_json
@@ -10,6 +11,45 @@ from sklearn.metrics import accuracy_score
 
 # need to run onece
 # nltk.download('punkt')
+
+
+def calculate_belu(responses, targets):
+    b4 = []
+    b3 = []
+    b2 = []
+    stemmer = nltk.stem.PorterStemmer()
+
+    for resp, target in zip(responses, targets):
+
+        ref = nltk.tokenize.word_tokenize(target)
+        hyp = nltk.tokenize.word_tokenize(resp)
+
+        b4.append(sentence_bleu([ref], hyp, weights=(0.25, 0.25, 0.25, 0.25)))
+        b3.append(sentence_bleu([ref], hyp, weights=(0.33, 0.33, 0.33)))
+        b2.append(sentence_bleu([ref], hyp, weights=(0.5, 0.5)))
+
+    return b2, b3, b4
+
+def calculate_rouge(responses, targets):
+    rouge = evallib.load("rouge")
+
+    rouge2 = []
+    rougeL = []
+    rouge1 = []
+    rougeLsum = []
+
+    # rougeLSum expects newline after each sentence
+    preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in responses]
+    labels = ["\n".join(nltk.sent_tokenize(label)) for label in targets]
+
+    for pred, label in zip(preds, labels):
+        result = rouge.compute(predictions=[pred], references=[labels], use_stemmer=True)
+        rouge1.append(result['rouge1'])
+        rouge2.append(result['rouge2'])
+        rougeL.append(result['rougeL'])
+        rougeLsum.append(result['rougeLsum'])
+
+    return rouge1, rouge2, rougeL, rougeLsum
 
 def calculate_evaluation_metrics(responses, targets):
     b4_sum = b3_sum = b2_sum = 0
@@ -69,15 +109,20 @@ def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test
 
     responses = []
     targets = []
+    turn_numbers = []
 
     strategy_preds = []
     strategy_labels = []
 
     print("generating responses...")
-    for entry in tqdm(test_data):
+    for i, entry in tqdm(enumerate(test_data)):
+        if i == 100:
+            break
         history = entry['history']
         target = entry['response']
-        full_text = tokenizer.bos_token + tokenizer.sep_token.join(history) + tokenizer.sep_token
+        full_text = tokenizer.bos_token + " ".join(history) + " <helper> "
+        turn_numbers.append(len(re.findall(r"<helper>", full_text)))
+
         input_ids = tokenizer(full_text, add_special_tokens=False, truncation=True,
                               return_tensors='pt', max_length=512).input_ids
 
@@ -104,18 +149,36 @@ def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test
         responses.append(utterance)
         targets.append(target)
 
-    metrics = calculate_evaluation_metrics(responses, targets)
+    metrics = {}
+    b2, b3, b4 = calculate_belu(responses, targets)
+    rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)
+
+    df_metrics = {
+        'B2': b2,
+        'B3': b3,
+        'B4': b4,
+        'Rouge1': rouge1,
+        'Rouge2': rouge2,
+        'RougeL': rougeL,
+        'RougeLsum': rougeLsum,
+        'turn': turn_numbers
+    }
+
+    df = pd.DataFrame(df_metrics)
+    df.to_csv('metrics.csv', index=False, header=True)
+
+    metrics.update(df.mean().to_dict())
     strategy_pred_acc = accuracy_score(strategy_labels, strategy_preds)
     metrics['strategy_pred_acc'] = strategy_pred_acc
     return metrics
 
-
 def evaluate(model_path, test_data_path, base_model='facebook/bart-base', model_type='joint_strategy_utt'):
     if model_type == 'joint_strategy_utt':
-        evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test_data_path)
+        results = evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test_data_path)
     else:
         raise NotImplementedError
 
+    print(results)
 
 if __name__ == '__main__':
     fire.Fire(evaluate)

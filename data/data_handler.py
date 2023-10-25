@@ -53,6 +53,7 @@ def _norm(x):
     return ' '.join(x.strip().split()).lower()
 
 
+#todo: add <helper> and <seeker> tokens to differentiate between the two (sometimes one speaker talks multiple times in the dataset)
 def construct_conversational_dataset(
         file_path: str,
         tokenizer: BartTokenizer,
@@ -116,7 +117,7 @@ def construct_conversational_dataset(
             if index == 0 and tmp_dic['speaker'] != 'sys':
                 # todo: why prepend it to history?
                 # handling when conversation starts with help seeker
-                history[0] = text + sep_token + history[0]
+                history[0] = "<seeker> " + text + sep_token + history[0]
                 continue
             if tmp_dic['speaker'] == 'sys' and tmp_dic['strategy'] != "Others":
                 # build one example from history up to this point of conversation
@@ -163,10 +164,10 @@ def construct_conversational_dataset(
                 tmp_strategy = norm_strategy(tmp_dic['strategy'])
                 if with_strategy:
                     # add strategy as control code to the history text
-                    tmp_sen = tmp_strategy + " " + text
+                    tmp_sen = "<helper> " + tmp_strategy + " " + text
                     history.append(tmp_sen)
                 else:
-                    history.append(text)
+                    history.append("<helper> " + text)
             else:
                 # help seeker utterance
                 utt = text
@@ -176,7 +177,7 @@ def construct_conversational_dataset(
                     if cause is not None and len(cause) > 0:
                         utt = cause + sep_token + utt
 
-                history.append(utt)
+                history.append("<seeker> " + utt)
 
     # random_idx = random.randint(0, len(total_data) - 1)
     # print(f'printing training example {random_idx}:')
@@ -223,7 +224,7 @@ class InputPreprocessor:
     def joint_strategy_utterance_generation(self, example):
         history = example['history']
         target = example['response']
-        full_text = self.tokenizer.bos_token + self.tokenizer.sep_token.join(history) + self.tokenizer.sep_token
+        full_text = self.tokenizer.bos_token + " ".join(history) + " <helper> "
 
         inputs = self.tokenizer(full_text, add_special_tokens=False, max_length=self.max_source_length, truncation=True)
         labels = self.tokenizer(target, add_special_tokens=True, max_length=self.max_target_length, truncation=True)
