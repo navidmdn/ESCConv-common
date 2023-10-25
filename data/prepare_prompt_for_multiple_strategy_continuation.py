@@ -44,8 +44,8 @@ def prepare_prompt(data_json):
     dial_hist = []
 
     n_supporter_turns = len([x for x in history if x['speaker'] == 'supporter'])
-    assert n_supporter_turns >= 2
-    random_break_point = random.randint(2, n_supporter_turns)
+    assert n_supporter_turns > 3
+    random_break_point = random.randint(3, n_supporter_turns-1)
 
     supporter_turn = 0
     for turn in history:
@@ -72,12 +72,15 @@ def prepare_prompt(data_json):
 
     prompt = prompt.format(emotion_type=emotion_type, problem_type=problem_type, situation=situation,
                            cont_strategy=cont_strategy, cont_strategy_def=strategies[cont_strategy],)
-    return prompt
+    return prompt, dial_hist, cont_strategy
 
 
 prompts = []
 for entry in data:
-    prompt = prepare_prompt(entry)
-    prompts.append({'prompt': prompt})
+    prompt, dial_hist, strategy = prepare_prompt(entry)
+    prompts.append({'prompt': prompt, 'dialog_history': dial_hist, 'strategy': strategy})
 
 write_json('./train_prompt.json', prompts)
+
+i = random.randint(0, len(prompts)-1)
+print(prompts[i]['prompt'])
