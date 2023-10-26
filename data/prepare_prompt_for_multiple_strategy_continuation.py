@@ -44,6 +44,7 @@ def prepare_prompt(data_json):
     the counselor is trying to help the help seeker by specifically following the mentioned strategy.\n\n"
 
     dial_hist = []
+    speakers = []
 
     n_supporter_turns = len([x for x in history if x['speaker'] == 'supporter'])
     assert n_supporter_turns > 3
@@ -52,7 +53,6 @@ def prepare_prompt(data_json):
     supporter_turn = 0
     for turn in history:
         content = turn['content'].strip()
-        dial_hist.append(content)
         speaker = turn['speaker']
         if speaker == 'supporter':
             annt = turn['annotation']
@@ -71,17 +71,21 @@ def prepare_prompt(data_json):
                         emotion_type=emotion_type, problem_type=problem_type, situation=situation,
                         cont_strategy=cont_strategy, cont_strategy_def=strategies[cont_strategy],))
                     continuations.append(cont_strategy)
+                break
             prompt += f"<strategy: {strategy}>\n{speaker}: {content}\n\n"
         else:
             prompt += f"{speaker}: {content}\n\n"
+        dial_hist.append(content)
+        speakers.append(speaker)
 
-    return output_prompts, dial_hist, continuations
+    return output_prompts, dial_hist, continuations, speakers
 
 
 prompts = []
 for entry in data:
-    output_prompts, dial_hist, continuations = prepare_prompt(entry)
-    prompts.append({'prompt': output_prompts, 'dialog_history': dial_hist, 'strategy': continuations})
+    output_prompts, dial_hist, continuations, speakers = prepare_prompt(entry)
+    prompts.append({'prompt': output_prompts, 'dialog_history': dial_hist,
+                    'strategy': continuations, 'speakers': speakers})
 
 write_json('./train_prompt.json', prompts)
 
