@@ -106,24 +106,20 @@ def preprocess(
     with open(data_path, 'r') as f:
         data = json.load(f)
 
-    conversations = []
-
-    for conversation in data:
-        conversations.extend(decompose_conversation(conversation, starting_turn=starting_turn))
-
     # split data to train, val, test
     # do a 0.6, 0.2, 0.2 split
-    train, test = train_test_split(conversations, test_size=0.2, random_state=RANDOM_SEED, shuffle=True)
+    train, test = train_test_split(data, test_size=0.2, random_state=RANDOM_SEED, shuffle=True)
     train, valid = train_test_split(train, test_size=0.25, random_state=RANDOM_SEED)
-
-    with open(f'{output_dir}/train.json', 'w') as f:
-        json.dump(train, f)
-
-    with open(f'{output_dir}/valid.json', 'w') as f:
-        json.dump(valid, f)
-
-    with open(f'{output_dir}/test.json', 'w') as f:
-        json.dump(test, f)
+    
+    def preprocess_and_save(split_data, split):
+        conversations = []
+        for conversation in split_data:
+            conversations.extend(decompose_conversation(conversation, starting_turn=starting_turn))
+        with open(f'{output_dir}/{split}.json', 'w') as f:
+            json.dump(conversations, f)
+            
+    for split, split_data in zip(['train', 'valid', 'test'], [train, valid, test]):
+        preprocess_and_save(split_data, split)
 
 
 if __name__ == '__main__':
