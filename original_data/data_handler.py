@@ -84,7 +84,9 @@ class InputPreprocessor:
         speakers = example['prev_speakers']
         target = example['response']
         cur_strategies = example['strategy']
+        cur_strategies = [norm_strategy(s) for s in cur_strategies]
         prev_strategies = example['prev_strategies']
+        prev_strategies = [[norm_strategy(s) for s in strategies] for strategies in prev_strategies]
 
         full_text = f"situation: {example['situation']} {self.sep_token} "
         for speaker, utt, strategies in zip(speakers, history, prev_strategies):
@@ -97,7 +99,7 @@ class InputPreprocessor:
             full_text += f"{speaker_token}{strategy_tokens} {utt} "
 
         cur_strategies = "".join(cur_strategies)
-        full_text += f"{self.supporter_token}{cur_strategies} "
+        full_text += f"{self.supporter_token}{cur_strategies} {self.tokenizer.mask_token}"
 
         inputs = self.tokenizer(full_text, add_special_tokens=True, max_length=self.max_source_length, truncation=True)
         labels = self.tokenizer(target, add_special_tokens=True, max_length=self.max_target_length, truncation=True)

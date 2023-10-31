@@ -114,7 +114,11 @@ def preprocess(
     def preprocess_and_save(split_data, split):
         conversations = []
         for conversation in split_data:
-            conversations.extend(decompose_conversation(conversation, starting_turn=starting_turn))
+            # todo: only add starting turn for training
+            if split == 'train':
+                conversations.extend(decompose_conversation(conversation, starting_turn=starting_turn))
+            else:
+                conversations.extend(decompose_conversation(conversation, starting_turn=1))
         with open(f'{output_dir}/{split}.json', 'w') as f:
             json.dump(conversations, f)
             
