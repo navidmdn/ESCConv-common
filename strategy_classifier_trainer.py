@@ -28,6 +28,7 @@ import datasets
 import evaluate
 import numpy as np
 from datasets import Value, load_dataset
+from sklearn.metrics import precision_score, recall_score
 
 import transformers
 from transformers import (
@@ -42,6 +43,7 @@ from transformers import (
     default_data_collator,
     set_seed,
 )
+from transformers.trainer_callback import EarlyStoppingCallback
 from transformers.trainer_utils import get_last_checkpoint
 from transformers.utils import check_min_version, send_example_telemetry
 from transformers.utils.versions import require_version
@@ -511,7 +513,6 @@ def main():
         config.problem_type = "single_label_classification"
         logger.info("setting problem type to single label classification")
 
-    #todo: add strategy tokens
     tokenizer = AutoTokenizer.from_pretrained(
         model_args.tokenizer_name if model_args.tokenizer_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -520,6 +521,9 @@ def main():
         # token=model_args.token,
         # trust_remote_code=model_args.trust_remote_code,
     )
+    tokenizer.add_tokens(["<supporter>", "<seeker>"])
+
+
     model = AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,
         from_tf=bool(".ckpt" in model_args.model_name_or_path),
@@ -530,6 +534,10 @@ def main():
         # trust_remote_code=model_args.trust_remote_code,
         # ignore_mismatched_sizes=model_args.ignore_mismatched_sizes,
     )
+
+    embedding_size = model.get_input_embeddings().weight.shape[0]
+    if len(tokenizer) > embedding_size:
+        model.resize_token_embeddings(len(tokenizer))
 
     # Padding strategy
     if data_args.pad_to_max_length:
@@ -671,6 +679,13 @@ def main():
             result = metric.compute(predictions=preds, references=p.label_ids, average='macro')
         if len(result) > 1:
             result["combined_score"] = np.mean(list(result.values())).item()
+
+        precisions = precision_score(p.label_ids, preds, average='macro')
+        recalls = recall_score(p.label_ids, preds, average='macro')
+
+        result['precision'] = precisions
+        result['recall'] = recalls
+
         return result
 
     # Data collator will default to DataCollatorWithPadding when the tokenizer is passed to Trainer, so we change it if
@@ -684,6 +699,11 @@ def main():
 
     print(train_dataset[0])
     # Initialize our Trainer
+    early_stopping_callback = EarlyStoppingCallback(
+        early_stopping_patience=5,
+        early_stopping_threshold=0.0,
+    )
+
     trainer = Trainer(
         model=model,
         args=training_args,
@@ -692,6 +712,7 @@ def main():
         compute_metrics=compute_metrics,
         tokenizer=tokenizer,
         data_collator=data_collator,
+        callbacks=[early_stopping_callback]
     )
 
     # Training
