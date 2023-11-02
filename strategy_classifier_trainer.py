@@ -469,17 +469,21 @@ def main():
         # We have to deal with common cases that labels appear in the training set but not in the validation/test set.
         # So we build the label list from the union of labels in train/val/test.
         label_list = get_label_list(raw_datasets, split="train")
-        for split in ["validation", "test"]:
-            if split in raw_datasets:
-                val_or_test_labels = get_label_list(raw_datasets, split=split)
-                diff = set(val_or_test_labels).difference(set(label_list))
-                if len(diff) > 0:
-                    # add the labels that appear in val/test but not in train, throw a warning
-                    logger.warning(
-                        f"Labels {diff} in {split} set but not in training set, adding them to the label list"
-                    )
-                    label_list += list(diff)
+
+        #todo: ignoring labels in val/test assuming all appear also in train
+
+        # for split in ["validation", "test"]:
+        #     if split in raw_datasets:
+        #         val_or_test_labels = get_label_list(raw_datasets, split=split)
+        #         diff = set(val_or_test_labels).difference(set(label_list))
+        #         if len(diff) > 0:
+        #             # add the labels that appear in val/test but not in train, throw a warning
+        #             logger.warning(
+        #                 f"Labels {diff} in {split} set but not in training set, adding them to the label list"
+        #             )
+        #             label_list += list(diff)
         # if label is -1, we throw a warning and remove it from the label list
+
         for label in label_list:
             if label == -1:
                 logger.warning("Label -1 found in label list, removing it.")
@@ -593,7 +597,8 @@ def main():
             if is_multi_label:
                 result["label"] = [multi_labels_to_ids(l) for l in examples["label"]]
             else:
-                result["label"] = [(label_to_id[str(l)] if l != -1 else -1) for l in examples["label"]]
+                #todo: added str(l) in label_to_id for cross dataset application
+                result["label"] = [(label_to_id[str(l)] if l != -1 and str(l) in label_to_id else -1) for l in examples["label"]]
         return result
 
     # Running the preprocessing pipeline on all the datasets
@@ -697,7 +702,6 @@ def main():
     else:
         data_collator = None
 
-    print(train_dataset[0])
     # Initialize our Trainer
     early_stopping_callback = EarlyStoppingCallback(
         early_stopping_patience=5,
@@ -757,7 +761,7 @@ def main():
             predictions = np.array([np.where(p > 0, 1, 0) for p in predictions])
         else:
             predictions = np.argmax(predictions, axis=1)
-        output_predict_file = os.path.join(training_args.output_dir, "predict_results.txt")
+        output_predict_file = os.path.join(training_args.output_dir, "test_strategy_results.txt")
         if trainer.is_world_process_zero():
             with open(output_predict_file, "w") as writer:
                 logger.info("***** Predict results *****")

@@ -45,3 +45,21 @@ mapping = {
     "Promote Self-Care Practices": "Providing Suggestions",
     "Stress Management": "Providing Suggestions",
 }
+
+id2label = {
+    "0": "Affirmation",
+    "1": "Avoid Judgment and Criticism",
+    "2": "Clarification",
+    "3": "Collaborative Planning",
+    "4": "Emotional Validation",
+    "5": "Empathetic Statements",
+    "6": "Normalize Experiences",
+    "7": "Offer Hope",
+    "8": "Promote Self-Care Practices",
+    "9": "Provide Different Perspectives",
+    "10": "Reflective Statements",
+    "11": "Reframe Negative Thoughts",
+    "12": "Share Information",
+    "13": "Stress Management",
+    "14": "Suggest Options"
+  }

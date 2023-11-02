@@ -190,7 +190,7 @@ class DataTrainingArguments:
         metadata={"help": "The number of processes to use for the preprocessing."},
     )
     max_source_length: Optional[int] = field(
-        default=400,
+        default=512,
         metadata={
             "help": (
                 "The maximum total input sequence length after tokenization. Sequences longer "
@@ -295,7 +295,7 @@ class DataTrainingArguments:
     )
 
     strategy_file: Optional[str] = field(
-        default='original_data/strategy.json',
+        default='original_data/esconv_strategy.json',
         metadata={
             "help": (
                 "The file path of strategy file"
@@ -599,7 +599,7 @@ def main():
         max_source_length=data_args.max_source_length,
         max_target_length=data_args.max_target_length,
         strategy_list=strategy_list,
-        add_strategy_token=True,
+        add_strategy_token=False,
     )
     preprocess_function = preprocessor.preprocess
 

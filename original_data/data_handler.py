@@ -84,7 +84,14 @@ class InputPreprocessor:
         speakers = example['prev_speakers']
         target = example['response']
         cur_strategies = example['strategy']
-        cur_strategies = [norm_strategy(s) for s in cur_strategies]
+
+        if isinstance(cur_strategies, str):
+            cur_strategies = [norm_strategy(cur_strategies)]
+        elif isinstance(cur_strategies, list):
+            cur_strategies = [norm_strategy(s) for s in cur_strategies]
+        else:
+            raise Exception("strategy should be either str or list")
+
         prev_strategies = example['prev_strategies']
         prev_strategies = [[norm_strategy(s) for s in strategies] for strategies in prev_strategies]
 
