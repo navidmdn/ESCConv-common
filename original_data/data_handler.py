@@ -92,10 +92,13 @@ class InputPreprocessor:
         else:
             raise Exception("strategy should be either str or list")
 
+        assert "prev_strategies" in example
         prev_strategies = example['prev_strategies']
+
         prev_strategies = [[norm_strategy(s) for s in strategies] for strategies in prev_strategies]
 
         full_text = f"situation: {example['situation']} {self.sep_token} "
+        assert len(history) == len(speakers) == len(prev_strategies)
         for speaker, utt, strategies in zip(speakers, history, prev_strategies):
             speaker_token = self.supporter_token if speaker == 'supporter' else self.seeker_token
             if self.add_strategy_token:

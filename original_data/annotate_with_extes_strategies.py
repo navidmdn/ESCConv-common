@@ -4,6 +4,7 @@ import torch
 from transformers.models.roberta import RobertaForSequenceClassification, RobertaTokenizer
 from tqdm import tqdm
 
+
 def preprocess_train_examples_with_ExTES_strategies(examples_batch, strategy_classifier_model,
                                                     strategy_classifier_tokenizer, id2strategy, device, max_length=128):
     inputs = []
@@ -23,11 +24,7 @@ def preprocess_train_examples_with_ExTES_strategies(examples_batch, strategy_cla
 
     modified_strategies = []
     for pred_strategy, example in zip(strategies, examples_batch):
-        example_strategy = set(example['strategy'])
-        if len(example_strategy) == 1 and list(example_strategy)[0] == 'Others':
-            strategy = 'Others'
-        else:
-            strategy = id2strategy[pred_strategy]
+        strategy = id2strategy[pred_strategy]
         modified_strategies.append(strategy)
 
     return modified_strategies
@@ -46,8 +43,10 @@ def run(model_path, data_path, output_path, batch_size=8):
     label2id = classifier.config.label2id
     id2label = {v: k for k, v in label2id.items()}
 
+    examples = []
     with open(data_path, "r") as f:
-        examples = json.load(f)
+        for line in f:
+            examples.append(json.loads(line))
 
     annotated = []
     idx = 0

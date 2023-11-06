@@ -7,9 +7,7 @@ from sklearn.model_selection import train_test_split
 RANDOM_SEED = 42
 
 
-#TODO: data format varies heavily, need to fix this scripts
 def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=True) -> List[Dict]:
-
     history = conversation['content']
     emotion_type = ""
     problem_type = ""
@@ -28,30 +26,51 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 
     for turn_obj in history:
         if "AI" in turn_obj and "User" in turn_obj:
-            # todo: some of the conversations have this weird format
-            print(conversation)
-            return []
-        if 'AI' in turn_obj:
-            speaker = 'supporter'
-        elif 'user' in turn_obj:
-            speaker = 'seeker'
+            user_utt = turn_obj["User"]
+            ai_utt = turn_obj["AI"]
+            ai_strategy = turn_obj["AI Strategy"] if "AI Strategy" in turn_obj else "Others"
+
+            # checking whose turn it is first
+            if len(all_speakers) == 0 or all_speakers[-1] == 'supporter':
+                all_turns.append(user_utt)
+                all_speakers.append('seeker')
+                all_strategies.append('')
+                all_turns.append(ai_utt)
+                all_speakers.append('supporter')
+                all_strategies.append(ai_strategy)
+            elif all_speakers[-1] == 'seeker':
+                all_turns.append(ai_utt)
+                all_speakers.append('supporter')
+                all_strategies.append(ai_strategy)
+                all_turns.append(user_utt)
+                all_speakers.append('seeker')
+                all_strategies.append('')
+            else:
+                raise Exception("unhandled case")
         else:
-            # skip this conversation totally
-            return []
+            if 'AI' in turn_obj:
+                speaker = 'supporter'
+            elif 'User' in turn_obj:
+                speaker = 'seeker'
+            else:
+                # skip this conversation totally
+                return []
 
-        content = turn_obj["AI" if speaker == 'supporter' else "User"]
+            content = turn_obj["AI" if speaker == 'supporter' else "User"]
 
-        if 'AI Strategy' in turn_obj:
-            strategy = turn_obj['AI Strategy']
-        else:
-            strategy = ""
+            # seeker always gets empty strategy
+            # supporter gets strategy if it's available otherwise gets Others as strategy
+            strategy = "Others"
+            if 'AI Strategy' in turn_obj and speaker == 'supporter':
+                if len(turn_obj["AI Strategy"]) > 0:
+                    strategy = turn_obj['AI Strategy']
 
-        if speaker == 'supporter' and len(strategy) == 0:
-            strategy = 'Others'
+            if speaker == 'seeker':
+                strategy = ""
 
-        all_turns.append(content)
-        all_speakers.append(speaker)
-        all_strategies.append(strategy)
+            all_turns.append(content)
+            all_speakers.append(speaker)
+            all_strategies.append(strategy)
 
     if turn_by_turn:
         concat_turns = [all_turns[0]]
@@ -80,6 +99,12 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
         all_speakers = concat_speakers
         all_strategies = concat_strategies
 
+    for ss in all_strategies:
+        for s in ss:
+            if s is None:
+                # corrupted data
+                return []
+
     conv_so_far = []
     speakers_so_far = []
     strategies_so_far = []
@@ -87,8 +112,13 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
     max_turn = len([x for x in all_speakers if x == 'supporter']) - 1
 
     turn = 0
+    assert len(all_turns) == len(all_speakers) == len(all_strategies)
     for i, (turn_content, speaker, strategies) in enumerate(zip(all_turns, all_speakers, all_strategies)):
         # don't count as a turn if supporter starts the conversation
+
+        if isinstance(turn_content, list) or isinstance(turn_content, dict):
+            return []
+
         if speaker == 'supporter' and i > 0:
             turn += 1
 
@@ -146,8 +176,9 @@ def preprocess(
                 conversations.extend(decomposed)
         print(f"corrupted conversations: {corrupted}/{len(split_data)}")
         with open(f'{output_dir}/{split}.json', 'w') as f:
-            json.dump(conversations, f)
-            
+            for conv in conversations:
+                f.write(json.dumps(conv) + '\n')
+
     for split, split_data in zip(['train', 'valid', 'test'], [train, valid, test]):
         preprocess_and_save(split_data, split)
 

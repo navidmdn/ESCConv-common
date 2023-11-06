@@ -19,29 +19,57 @@ VALID_STRATEGIES = [
     "Normalize Experiences",
     "Promote Self-Care Practices",
     "Stress Management",
+    "Others"
 ]
 
 def preprocess_conversation(conversation: Dict) -> List[Dict]:
     history = conversation['content']
     processed_text = ""
     results = []
-
+    all_speakers = []
     n_turn = 0
     for turn in history:
-        if 'AI' in turn:
-            speaker = 'supporter'
+        ai_strategy = ""
+        if "AI" in turn and "User" in turn:
+            user_utt = turn["User"]
+            ai_utt = turn["AI"]
+            ai_strategy = turn["AI Strategy"] if "AI Strategy" in turn else "Others"
             n_turn += 1
-        elif 'User' in turn:
-            speaker = 'seeker'
+
+            # checking whose turn it is first
+            if len(all_speakers) == 0 or all_speakers[-1] == 'supporter':
+                all_speakers.append('seeker')
+                all_speakers.append('supporter')
+                processed_text += f"<seeker>{user_utt} "
+                processed_text += f"<supporter>{ai_utt} "
+                speaker = 'supporter'
+            elif all_speakers[-1] == 'seeker':
+                all_speakers.append('supporter')
+                all_speakers.append('seeker')
+                processed_text += f"<supporter>{ai_utt} "
+                processed_text += f"<seeker>{user_utt} "
+                speaker = 'seeker'
+            else:
+                raise Exception("unhandled case")
         else:
-            raise ValueError("Unknown speaker: ", turn)
-        utt = turn['AI' if speaker == 'supporter' else 'User']
-        processed_text += f"<{speaker}>{utt} "
-        if n_turn > 3 and speaker == 'supporter' and "AI Strategy" in turn and turn['AI Strategy'] in VALID_STRATEGIES:
-            strategy = turn['AI Strategy']
-            results.append({'context': processed_text, 'strategy': strategy})
+            if 'AI' in turn:
+                speaker = 'supporter'
+                n_turn += 1
+            elif 'User' in turn:
+                speaker = 'seeker'
+            else:
+                raise ValueError("Unknown speaker: ", turn)
+            utt = turn['AI' if speaker == 'supporter' else 'User']
+            processed_text += f"<{speaker}>{utt} "
+            all_speakers.append(speaker)
+            if "AI Strategy" in turn:
+                ai_strategy = turn["AI Strategy"]
+
+        if n_turn > 3 and speaker == 'supporter' and ai_strategy != "" and ai_strategy in VALID_STRATEGIES:
+            results.append({'context': processed_text, 'strategy': ai_strategy})
 
     return results
+
 
 def preprocess(
         data_path: str = "ExTES.json",

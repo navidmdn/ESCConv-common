@@ -119,9 +119,11 @@ def preprocess(
                 conversations.extend(decompose_conversation(conversation, starting_turn=starting_turn))
             else:
                 conversations.extend(decompose_conversation(conversation, starting_turn=1))
+
         with open(f'{output_dir}/{split}.json', 'w') as f:
-            json.dump(conversations, f)
-            
+            for conv in conversations:
+                f.write(json.dumps(conv) + '\n')
+
     for split, split_data in zip(['train', 'valid', 'test'], [train, valid, test]):
         preprocess_and_save(split_data, split)
 

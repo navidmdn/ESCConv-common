@@ -755,7 +755,7 @@ def main():
     logger.info("average input length: {}".format(sum(lens) / len(lens)))
 
     early_stopping_callback = EarlyStoppingCallback(
-        early_stopping_patience=5,
+        early_stopping_patience=10,
         early_stopping_threshold=0.0,
     )
     # Initialize our Trainer
