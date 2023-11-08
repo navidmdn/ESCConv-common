@@ -5,15 +5,55 @@
     <title>Conversation</title>
     <style>
         .message { margin: 10px; padding: 5px; }
-        .supporter { background-color: #D2E5FF; }
-        .seeker { background-color: #FFD2D2; }
+        .seeker { background-color: #D2E5FF; }
+        .supporter { background-color: #FFD2D2; }
+        .metadata-box {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: #f9f9f9;
+        }
+        .metadata-turn {
+            background-color: #ffff99; /* Highlight color */
+            font-style: italic;
+            padding: 3px;
+            border-radius: 5px;
+            display: inline-block;
+            margin-bottom: 5px;
+        }
     </style>
 </head>
 <body>
+
+    <div class="metadata-box">
+        <h3>Conversation Metadata</h3>
+        <p><strong>Problem type:</strong> {{ metadata.problem_type }}</p>
+        <p><strong>Emotion type:</strong> {{ metadata.emotion_type }}</p>
+        <p><strong>Situation:</strong> {{ metadata.situation }}</p>
+    </div>
+
+    <form action="{{ url_for('random_conversation') }}" method="get">
+        <button type="submit">Random Conversation</button>
+    </form>
+        <!-- Next button -->
+
+    {% if next_index %}
+        <form action="{{ url_for('conversation', index=next_index) }}" method="get">
+            <button type="submit">Next</button>
+        </form>
+    {% else %}
+        <p>No more conversations.</p>
+    {% endif %}
+
     {% for message in conversation %}
-        <div class="message {{ message.speaker }}">
-            <strong>{{ message.speaker }}:</strong> {{ message.text }}
+        <div class="message {{message.speaker}}">
+            {% if message.strategy %}
+                <div class="metadata-turn"> {{ message.strategy }} </div>
+            {% endif %}
+            <p><strong>{{ message.speaker }}:</strong> {{ message.text }}</p>
         </div>
     {% endfor %}
+
+
 </body>
 </html>
