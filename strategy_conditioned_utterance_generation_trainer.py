@@ -621,7 +621,8 @@ def main():
         input_ids = train_dataset[0]['input_ids']
         label_ids = train_dataset[0]['labels']
         # decode input_ids
-        print("input_ids: ", tokenizer.decode(input_ids, skip_special_tokens=False))
+        print("input_ids decoded: ", tokenizer.decode(input_ids, skip_special_tokens=False))
+        print("input_ids: ", input_ids)
         print("label_ids: ", tokenizer.decode(label_ids, skip_special_tokens=False))
 
     if training_args.do_eval:
@@ -677,12 +678,6 @@ def main():
         labels = ["\n".join(nltk.sent_tokenize(label)) for label in labels]
 
         return preds, labels
-
-    strategy_ids = OrderedDict()
-    # reserve class 0 for anything other than strategies
-    for s in strategy_list:
-        strategy_ids[s] = len(strategy_ids) + 1
-
 
     stemmer = nltk.stem.PorterStemmer()
     def get_belu_score(preds, labels):

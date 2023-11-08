@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Conversation</title>
+    <style>
+        .message { margin: 10px; padding: 5px; }
+        .supporter { background-color: #D2E5FF; }
+        .seeker { background-color: #FFD2D2; }
+    </style>
+</head>
+<body>
+    {% for message in conversation %}
+        <div class="message {{ message.speaker }}">
+            <strong>{{ message.speaker }}:</strong> {{ message.text }}
+        </div>
+    {% endfor %}
+</body>
+</html>
