@@ -5,8 +5,12 @@ import random
 
 app = Flask(__name__)
 
+# ESConve data path
+# data_path = '../../original_data/train_ann_extes.json'
 
-data_path = '../../original_data/train_ann_extes.json'
+# ExTES data path
+data_path = '../ExTES/train.json'
+
 # Sample dataset of conversations
 # This should be replaced with your actual dataset
 
