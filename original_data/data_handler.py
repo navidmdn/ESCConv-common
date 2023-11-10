@@ -63,7 +63,6 @@ class InputPreprocessor:
             'strategy_generation': self.strategy_generation_tokenization,
             'utterance_generation_conditioned_on_strategy': self.utterance_generation_conditioned_on_strategy,
             'peft_clm_preprocessor': self.peft_clm_preprocessor,
-            'peft_clm_formatting': self.peft_clm_formatting,
         }
 
         self.preprocess = self.processing_functions[preprocessor_type]
@@ -137,7 +136,7 @@ class InputPreprocessor:
             'labels': labels['input_ids'],
         }
 
-    def peft_clm_preprocessor(self, example, window_size=2):
+    def peft_clm_preprocessor(self, example, window_size=4):
         history = example['dialog_history'][-window_size:]
         speakers = example['prev_speakers'][-window_size:]
         target = example['response']
@@ -157,7 +156,8 @@ class InputPreprocessor:
             speaker_token = self.supporter_token if speaker == 'supporter' else self.seeker_token
             full_text += f"{speaker_token}: {utt.strip()}\n"
 
-        cur_strategies = "".join(cur_strategies)
+        cur_strategies = [f"[{s}]" for s in cur_strategies]
+        cur_strategies = " ".join(cur_strategies)
         full_text += f"{self.supporter_token}: {cur_strategies} "
 
         inputs = self.tokenizer(full_text, add_special_tokens=True)
@@ -181,48 +181,8 @@ class InputPreprocessor:
             'input_ids': torch.tensor(inputs['input_ids'][-self.max_source_length:]),
             'attention_mask': torch.tensor(inputs['attention_mask'][-self.max_source_length:]),
             'labels': torch.tensor(labels['input_ids'][-self.max_source_length:]),
-            'full_text': full_text,
+            'prompt': full_text,
         }
-
-    def peft_clm_formatting(self, examples, window_size=3):
-        examples_dict = []
-        for i in range(len(examples['dialog_history'])):
-            examples_dict.append({
-                'dialog_history': examples['dialog_history'][i],
-                'prev_speakers': examples['prev_speakers'][i],
-                'response': examples['response'][i],
-                'strategy': examples['strategy'][i],
-                'prev_strategies': examples['prev_strategies'][i],
-                'situation': examples['situation'][i],
-            })
-
-        formatted_examples = []
-        for example in examples_dict:
-            history = example['dialog_history'][-window_size:]
-            speakers = example['prev_speakers'][-window_size:]
-            target = example['response']
-            cur_strategies = example['strategy']
-
-            if isinstance(cur_strategies, str):
-                cur_strategies = [cur_strategies]
-            elif not isinstance(cur_strategies, list):
-                raise Exception("strategy should be either str or list")
-
-            assert "prev_strategies" in example
-            prev_strategies = example['prev_strategies'][-window_size:]
-
-            full_text = f"situation: {example['situation']} conversation:\n"
-            assert len(history) == len(speakers) == len(prev_strategies)
-            for speaker, utt, strategies in zip(speakers, history, prev_strategies):
-                speaker_token = self.supporter_token if speaker == 'supporter' else self.seeker_token
-                full_text += f"{speaker_token}: {utt.strip()}\n"
-
-            cur_strategies = "".join(cur_strategies)
-            full_text += f"{self.supporter_token}: {cur_strategies} "
-            full_text += target
-            formatted_examples.append(full_text)
-
-        return formatted_examples
 
     def joint_strategy_utterance_generation(self, example):
         history = example['history']

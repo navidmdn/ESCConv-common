@@ -45,7 +45,7 @@ class ScriptArguments:
 
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "the text field of the dataset"})
-    log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
+    log_with: Optional[str] = field(default="wandb", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=4, metadata={"help": "the batch size"})
     seq_length: Optional[int] = field(default=256, metadata={"help": "Input sequence length"})
@@ -66,9 +66,9 @@ class ScriptArguments:
     num_train_epochs: Optional[int] = field(default=10, metadata={"help": "the number of training epochs"})
     max_steps: Optional[int] = field(default=-1, metadata={"help": "the number of training steps"})
     save_steps: Optional[int] = field(
-        default=100, metadata={"help": "Number of updates steps before two checkpoint saves"}
+        default=50, metadata={"help": "Number of updates steps before two checkpoint saves"}
     )
-    save_total_limit: Optional[int] = field(default=10, metadata={"help": "Limits total number of checkpoints."})
+    save_total_limit: Optional[int] = field(default=1, metadata={"help": "Limits total number of checkpoints."})
     push_to_hub: Optional[bool] = field(default=False, metadata={"help": "Push the model to HF Hub"})
     gradient_checkpointing: Optional[bool] = field(
         default=False, metadata={"help": "Whether to use gradient checkpointing or no"}
@@ -134,13 +134,13 @@ def main():
     columns = raw_datasets["train"].column_names
 
     if tokenizer.pad_token is None:
-        tokenizer.add_special_tokens({"pad_token": "<pad>"})
-        print("The tokenizer didn't have a pad token, so we added a new token: <pad> to the tokenizer.")
+        tokenizer.pad_token_id = tokenizer.eos_token_id
 
     strategy_list = get_strategy(script_args.strategy_file, norm=False)
     embedding_size = model.get_input_embeddings().weight.shape[0]
+
     if len(tokenizer) > embedding_size:
-        model.resize_token_embeddings(len(tokenizer))
+        raise Exception("The vocab size shouldn't have changed!")
 
     preprocessor = InputPreprocessor(
         preprocessor_type=script_args.preprocess_type,
@@ -154,12 +154,11 @@ def main():
     )
     preprocessor_func = preprocessor.preprocess
 
-    raw_datasets = raw_datasets.map(preprocessor_func, num_proc=4, remove_columns=columns)
-
+    raw_datasets = raw_datasets.map(preprocessor_func, load_from_cache_file=False, num_proc=4, remove_columns=columns)
+    raw_datasets.remove_columns(["prompt"])
 
     train_dataset = raw_datasets["train"]
     valid_dataset = raw_datasets["validation"]
-
 
     print("A sample of train dataset: ")
     idx = random.randint(0, len(train_dataset))
@@ -198,12 +197,6 @@ def main():
 
     # Step 4: Define the LoraConfig
     if script_args.use_peft:
-        # peft_config = LoraConfig(
-        #     r=script_args.peft_lora_r,
-        #     lora_alpha=script_args.peft_lora_alpha,
-        #     bias="none",
-        #     task_type="CAUSAL_LM",
-        # )
         peft_config = PromptTuningConfig(
             task_type=TaskType.CAUSAL_LM,
             prompt_tuning_init=PromptTuningInit.TEXT,
@@ -215,7 +208,7 @@ def main():
     else:
         peft_config = None
 
-    # TODO: it is just doing language modeling
+    model.print_trainable_parameters()
     # Step 5: Define the Trainer
     trainer = Trainer(
         model=model,
