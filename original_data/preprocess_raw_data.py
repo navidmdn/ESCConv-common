@@ -6,6 +6,16 @@ from sklearn.model_selection import train_test_split
 
 RANDOM_SEED = 42
 
+VALID_STRATEGIES = [
+    'Question',
+    'Restatement or Paraphrasing',
+    'Reflection of feelings',
+    'Self-disclosure',
+    'Affirmation and Reassurance',
+    'Providing Suggestions',
+    'Information',
+    'Others'
+]
 
 def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=True) -> List[Dict]:
 
@@ -30,6 +40,9 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
             strategy = 'Others'
         else:
             strategy = ''
+
+        if speaker == 'supporter':
+            assert strategy in VALID_STRATEGIES, f"strategy {strategy} is not valid"
 
         all_turns.append(content)
         all_speakers.append(speaker)
@@ -100,7 +113,7 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 def preprocess(
         data_path: str = "ESConv.json",
         output_dir: str = ".",
-        starting_turn: int = 3,
+        starting_turn: int = 1,
 
 ):
     with open(data_path, 'r') as f:
