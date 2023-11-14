@@ -608,7 +608,7 @@ def main():
             batched=True,
             load_from_cache_file=not data_args.overwrite_cache,
             desc="Running tokenizer on dataset",
-        ).remove_columns(["sentence", "context"])
+        ).remove_columns(["sentence"])
 
     if training_args.do_train:
         if "train" not in raw_datasets:
