@@ -34,6 +34,14 @@ def evaluate(model_name_or_path, peft_model_path, test_file_path, strategy_file,
     model.to(device)
     model.eval()
 
+    #todo: print the tuned soft prompt(s)
+    prompt = model.get_prompt(batch_size=1).to(torch_dtype)
+    prompt_tokens = model.get_output_embeddings()(prompt)
+    prompt_tokens = torch.argmax(prompt_tokens, dim=-1)
+    prompt_tokens = prompt_tokens.squeeze().tolist()
+    prompt_tokens = tokenizer.decode(prompt_tokens)
+    print("Tuned soft prompt is: ", prompt_tokens)
+
     test_dataset = load_dataset(
         'json',
         data_files={'test': test_file_path},

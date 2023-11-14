@@ -19,11 +19,11 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 from datasets import load_dataset
-from peft import LoraConfig, PromptTuningConfig, PromptTuningInit, TaskType
+from peft import LoraConfig, PromptTuningConfig, PromptTuningInit, TaskType, MultitaskPromptTuningConfig, MultitaskPromptTuningInit
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, HfArgumentParser, TrainingArguments
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,\
+    HfArgumentParser, TrainingArguments
 from original_data.data_handler import get_strategy, InputPreprocessor
-from trl import SFTTrainer, is_xpu_available
 from transformers import Trainer
 from peft import get_peft_model
 from transformers import default_data_collator
@@ -32,16 +32,14 @@ from transformers import default_data_collator
 tqdm.pandas()
 
 
-# Define and parse arguments.
+# Define and parse arguments. 2
 @dataclass
 class ScriptArguments:
-    """
-    The name of the Casual LM model we wish to fine with SFTTrainer
-    """
     train_file: Optional[str] = field(metadata={"help": "training file path"})
     validation_file: Optional[str] = field(metadata={"help": "validation file path"})
     strategy_file: Optional[str] = field(metadata={"help": "strategy file path"})
     preprocess_type: Optional[str] = field(default="peft_clm_preprocessor", metadata={"help": "preprocess type"})
+    peft_type: Optional[str] = field(default="prompt_tuning", metadata={"help": "peft type"})
 
     model_name: Optional[str] = field(default="gpt2", metadata={"help": "the model name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "the text field of the dataset"})
@@ -95,9 +93,7 @@ def main():
         )
         # Copy the model to each device
         device_map = (
-            {"": f"xpu:{Accelerator().local_process_index}"}
-            if is_xpu_available()
-            else {"": Accelerator().local_process_index}
+            {"": Accelerator().local_process_index}
         )
         torch_dtype = torch.bfloat16
     else:
@@ -109,10 +105,14 @@ def main():
         script_args.model_name,
         quantization_config=quantization_config,
         device_map=device_map,
+        cache_dir=script_args.cache_dir,
         trust_remote_code=script_args.trust_remote_code,
         torch_dtype=torch_dtype,
         use_auth_token=script_args.use_auth_token,
     )
+
+    # when running locally on cpu
+    # model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
 
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_name,)
 
@@ -197,13 +197,28 @@ def main():
 
     # Step 4: Define the LoraConfig
     if script_args.use_peft:
-        peft_config = PromptTuningConfig(
-            task_type=TaskType.CAUSAL_LM,
-            prompt_tuning_init=PromptTuningInit.TEXT,
-            num_virtual_tokens=25,
-            prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
-            tokenizer_name_or_path=script_args.model_name,
-        )
+        print("using peft type: ", script_args.peft_type)
+
+        if script_args.peft_type == 'prompt_tuning':
+            peft_config = PromptTuningConfig(
+                task_type=TaskType.CAUSAL_LM,
+                prompt_tuning_init=PromptTuningInit.TEXT,
+                num_virtual_tokens=25,
+                prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
+                tokenizer_name_or_path=script_args.model_name,
+            )
+        elif script_args.peft_type == 'multitask_prompt_tuning':
+            peft_config = MultitaskPromptTuningConfig(
+                task_type=TaskType.CAUSAL_LM,
+                prompt_tuning_init=MultitaskPromptTuningInit.TEXT,
+                num_virtual_tokens=25,
+                prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
+                num_tasks=len(strategy_list),
+                tokenizer_name_or_path=script_args.model_name,
+            )
+        else:
+            raise NotImplementedError()
+
         model = get_peft_model(model, peft_config)
     else:
         peft_config = None
