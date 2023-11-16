@@ -23,11 +23,11 @@ from peft import LoraConfig, PromptTuningConfig, PromptTuningInit, TaskType, Mul
     MultitaskPromptTuningInit
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, \
-    HfArgumentParser, TrainingArguments
+    HfArgumentParser, TrainingArguments, AutoModelForSeq2SeqLM
 from original_data.data_handler import get_strategy, InputPreprocessor
 from transformers import Trainer
 from peft import get_peft_model
-from transformers import default_data_collator
+from transformers import default_data_collator, DataCollatorForSeq2Seq
 
 tqdm.pandas()
 
@@ -101,15 +101,31 @@ def main():
         quantization_config = None
         torch_dtype = None
 
-    model = AutoModelForCausalLM.from_pretrained(
-        script_args.model_name,
-        quantization_config=quantization_config,
-        device_map=device_map,
-        cache_dir=script_args.cache_dir,
-        trust_remote_code=script_args.trust_remote_code,
-        torch_dtype=torch_dtype,
-        use_auth_token=script_args.use_auth_token,
-    )
+    if 'flan' in script_args.model_name.lower() or 'bart' in script_args.model_name.lower() or 't5' in script_args.model_name.lower():
+        model_type = 'seq2seq'
+    else:
+        model_type = 'clm'
+
+    if model_type == 'clm':
+        model = AutoModelForCausalLM.from_pretrained(
+            script_args.model_name,
+            quantization_config=quantization_config,
+            device_map=device_map,
+            cache_dir=script_args.cache_dir,
+            trust_remote_code=script_args.trust_remote_code,
+            torch_dtype=torch_dtype,
+            use_auth_token=script_args.use_auth_token,
+        )
+    elif model_type == 'seq2seq':
+        model = AutoModelForSeq2SeqLM.from_pretrained(
+            script_args.model_name,
+            quantization_config=quantization_config,
+            device_map=device_map,
+            cache_dir=script_args.cache_dir,
+            trust_remote_code=script_args.trust_remote_code,
+            torch_dtype=torch_dtype,
+            use_auth_token=script_args.use_auth_token,
+        )
 
     # when running locally on cpu
     # model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
@@ -155,7 +171,7 @@ def main():
     preprocessor_func = preprocessor.preprocess
 
     raw_datasets = raw_datasets.map(preprocessor_func, load_from_cache_file=False, num_proc=4, remove_columns=columns)
-    raw_datasets.remove_columns(["prompt"])
+    # raw_datasets.remove_columns(["prompt"])
 
     train_dataset = raw_datasets["train"]
     valid_dataset = raw_datasets["validation"]
@@ -199,9 +215,15 @@ def main():
     if script_args.use_peft:
         print("using peft type: ", script_args.peft_type)
 
+        task_type = TaskType.CAUSAL_LM
+        if model_type == 'seq2seq':
+            task_type = TaskType.SEQ_2_SEQ_LM
+
+        print("task type: ", task_type)
+
         if script_args.peft_type == 'prompt_tuning':
             peft_config = PromptTuningConfig(
-                task_type=TaskType.CAUSAL_LM,
+                task_type=task_type,
                 prompt_tuning_init=PromptTuningInit.TEXT,
                 num_virtual_tokens=50,
                 prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
@@ -209,7 +231,7 @@ def main():
             )
         elif script_args.peft_type == 'multitask_prompt_tuning':
             peft_config = MultitaskPromptTuningConfig(
-                task_type=TaskType.CAUSAL_LM,
+                task_type=task_type,
                 prompt_tuning_init=MultitaskPromptTuningInit.TEXT,
                 num_virtual_tokens=50,
                 prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
@@ -218,10 +240,10 @@ def main():
             )
         elif script_args.peft_type == 'lora':
             peft_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM,
+                task_type=task_type,
                 inference_mode=False,
-                r=64,
-                lora_alpha=16,
+                r=script_args.peft_lora_r,
+                lora_alpha=script_args.peft_lora_alpha,
                 lora_dropout=0.1,
                 bias="all"
             )
@@ -232,6 +254,12 @@ def main():
     else:
         peft_config = None
 
+    if model_type == 'seq2seq':
+        data_collator = DataCollatorForSeq2Seq(tokenizer, model=model, label_pad_token_id=-100)
+    else:
+        data_collator = default_data_collator
+
+
     model.print_trainable_parameters()
     # Step 5: Define the Trainer
     trainer = Trainer(
@@ -240,7 +268,7 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=valid_dataset,
-        data_collator=default_data_collator,
+        data_collator=data_collator,
     )
 
     trainer.train()

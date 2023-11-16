@@ -281,11 +281,10 @@ class InputPreprocessor:
             'prompt': full_text,
         }
 
-    def multitask_peft_clm_preprocessor(self, example, window_size=4):
+    def multitask_peft_clm_preprocessor(self, example, window_size=6):
         history = example['dialog_history'][-window_size:]
         speakers = example['prev_speakers'][-window_size:]
         target = example['response']
-        task_ids = []
         cur_strategies = example['strategy']
 
         if isinstance(cur_strategies, str):
@@ -302,33 +301,8 @@ class InputPreprocessor:
             speaker_token = self.supporter_token if speaker == 'supporter' else self.seeker_token
             full_text += f"{speaker_token}: {utt.strip()}\n"
 
-        #todo: too many mismatchs in the synthetic dataset. Need to fix this
-        #todo: just adding the last strategy as the task id
         last_strategy = cur_strategies[-1].lower()
-        if (last_strategy in self.strategy_list):
-            task_ids = self.strategy_list.index(last_strategy)
-        elif last_strategy+"s" in self.strategy_list:
-            task_ids = self.strategy_list.index(last_strategy+"s")
-        elif last_strategy[:-1] in self.strategy_list:
-            task_ids = self.strategy_list.index(last_strategy[:-1])
-        elif last_strategy == 'normalization':
-            task_ids = self.strategy_list.index('normalize experiences')
-        elif last_strategy == 'validate emotions':
-            task_ids = self.strategy_list.index('emotional validation')
-        elif last_strategy in ['reflected statements', 'reflection statements', 'reflection']:
-            task_ids = self.strategy_list.index('reflective statements')
-        elif last_strategy == 'refine negative thoughts' or last_strategy == 'refraiming negative thoughts':
-            task_ids = self.strategy_list.index('reframe negative thoughts')
-        elif last_strategy in ['suggestions', 'offer options']:
-            task_ids = self.strategy_list.index('suggest options')
-        elif last_strategy == 'reassurance and perspective':
-            task_ids = self.strategy_list.index('provide different perspectives')
-        elif last_strategy == '':
-            task_ids = self.strategy_list.index('others')
-        elif last_strategy in ['validation']:
-            task_ids = self.strategy_list.index('emotional validation')
-        else:
-            raise Exception("Strategy not found in the list: ", last_strategy)
+        task_ids = self.strategy_list.index(last_strategy)
 
         cur_strategies = [f"[{s}]" for s in cur_strategies]
         cur_strategies = " ".join(cur_strategies)
