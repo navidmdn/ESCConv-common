@@ -36,12 +36,10 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 
         if 'strategy' in annotation:
             strategy = annotation['strategy']
-        elif speaker == 'supporter':
-            strategy = 'Others'
         else:
             strategy = ''
 
-        if speaker == 'supporter':
+        if speaker == 'supporter' and strategy != '':
             assert strategy in VALID_STRATEGIES, f"strategy {strategy} is not valid"
 
         all_turns.append(content)

@@ -22,17 +22,27 @@ VALID_STRATEGIES = [
     "Normalize Experiences",
     "Promote Self-Care Practices",
     "Stress Management",
-    "Others"
+    # "Others"
 ]
 VALID_STRATEGIES = [s.lower() for s in VALID_STRATEGIES]
 
-def preprocess_conversation(conversation: Dict, conv_window=1) -> Dict:
+def preprocess_conversation(conversation: Dict, conv_window=1) -> Union[Dict, None]:
+    if conv_window == 0:
+        strategy = conversation['strategy'][0]
+        if len(strategy) == 0 or strategy not in VALID_STRATEGIES:
+            return
+        return {
+            "sentence": conversation['response'],
+            "strategy": strategy
+        }
+
     history = conversation['dialog_history'][-conv_window:]
     prev_speakers = conversation['prev_speakers'][-conv_window:]
     response = conversation['response']
     strategy = conversation['strategy'][0]
 
-    assert len(strategy) > 0
+    if len(strategy) == 0 or strategy not in VALID_STRATEGIES:
+        return
 
     full_text = ""
     for utt, speaker in zip(history, prev_speakers):
@@ -40,7 +50,7 @@ def preprocess_conversation(conversation: Dict, conv_window=1) -> Dict:
 
     full_text += f"<supporter> {response}"
 
-    assert strategy in VALID_STRATEGIES, "strategy not found: " + strategy
+    # assert strategy in VALID_STRATEGIES, "strategy not found: " + strategy
 
     return {
         "sentence": full_text,

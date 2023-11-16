@@ -525,8 +525,9 @@ def main():
         # token=model_args.token,
         # trust_remote_code=model_args.trust_remote_code,
     )
-    tokenizer.add_tokens(["<supporter>", "<seeker>"])
 
+    #todo: add these if you have speakers in dialogue
+    tokenizer.add_tokens(["<supporter>", "<seeker>"])
 
     model = AutoModelForSequenceClassification.from_pretrained(
         model_args.model_name_or_path,
@@ -606,7 +607,7 @@ def main():
         raw_datasets = raw_datasets.map(
             preprocess_function,
             batched=True,
-            load_from_cache_file=not data_args.overwrite_cache,
+            load_from_cache_file=False,#not data_args.overwrite_cache,
             desc="Running tokenizer on dataset",
         ).remove_columns(["sentence"])
 
@@ -704,7 +705,7 @@ def main():
 
     # Initialize our Trainer
     early_stopping_callback = EarlyStoppingCallback(
-        early_stopping_patience=5,
+        early_stopping_patience=10,
         early_stopping_threshold=0.0,
     )
 

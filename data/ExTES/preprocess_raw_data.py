@@ -31,6 +31,7 @@ strategy_embs = [nlp(s) for s in VALID_STRATEGIES]
 
 RANDOM_SEED = 42
 
+
 def find_strategy(strategy: str, valid_strategies: List[str], strategy_embs) -> str:
     if strategy in valid_strategies:
         return strategy
@@ -42,23 +43,24 @@ def find_strategy(strategy: str, valid_strategies: List[str], strategy_embs) -> 
     # removing any ambiguous strategies
     return
 
-    if strategy.lower() == 'validation':
-        return "emotional validation"
+    # if strategy.lower() == 'validation':
+    #     return "emotional validation"
+    #
+    # sim = 0
+    # best_strategy = None
+    # for strategy_text, s in zip(valid_strategies, strategy_embs):
+    #     cur_sim = s.similarity(nlp(strategy.lower()))
+    #     if cur_sim > sim:
+    #         sim = cur_sim
+    #         best_strategy = strategy_text
+    #
+    # if sim < 0.8:
+    #     # print("strategy not found: ", strategy)
+    #     return
+    #
+    # print(f"{strategy} -> {best_strategy} - score: {sim}")
+    # return best_strategy
 
-    sim = 0
-    best_strategy = None
-    for strategy_text, s in zip(valid_strategies, strategy_embs):
-        cur_sim = s.similarity(nlp(strategy.lower()))
-        if cur_sim > sim:
-            sim = cur_sim
-            best_strategy = strategy_text
-
-    if sim < 0.8:
-        # print("strategy not found: ", strategy)
-        return
-
-    print(f"{strategy} -> {best_strategy} - score: {sim}")
-    return best_strategy
 
 def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=True) -> List[Dict]:
     history = conversation['content']
@@ -82,15 +84,16 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
             user_utt = turn_obj["User"]
             ai_utt = turn_obj["AI"]
 
-            ai_strategy = "others"
+            ai_strategy = ""
             if "AI Strategy" in turn_obj:
                 ai_strategy = turn_obj["AI Strategy"]
-                if ai_strategy is None or len(ai_strategy) == 0:
-                    ai_strategy = "others"
-
-                ai_strategy = find_strategy(ai_strategy, VALID_STRATEGIES, strategy_embs)
                 if ai_strategy is None:
-                    return []
+                    ai_strategy = ""
+
+                if len(ai_strategy) > 0:
+                    ai_strategy = find_strategy(ai_strategy, VALID_STRATEGIES, strategy_embs)
+                    if ai_strategy is None:
+                        ai_strategy = ""
 
             # checking whose turn it is first
             if len(all_speakers) == 0 or all_speakers[-1] == 'supporter':
@@ -121,15 +124,15 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
             content = turn_obj["AI" if speaker == 'supporter' else "User"]
 
             # seeker always gets empty strategy
-            # supporter gets strategy if it's available otherwise gets Others as strategy
-            strategy = "others"
+            # since empty strategies are deceiving and can belong to any category we just add empty strategy
+            # instead of Others for supporter
+            strategy = ""
             if 'AI Strategy' in turn_obj and speaker == 'supporter':
-                if len(turn_obj["AI Strategy"]) > 0:
-                    strategy = turn_obj['AI Strategy']
+                strategy = turn_obj['AI Strategy']
 
             strategy = find_strategy(strategy, VALID_STRATEGIES, strategy_embs)
             if strategy is None:
-                return []
+                strategy = ""
 
             if speaker == 'seeker':
                 strategy = ""
@@ -214,7 +217,7 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 def preprocess(
         data_path: str = "ExTES.json",
         output_dir: str = ".",
-        starting_turn: int = 1,
+        starting_turn: int = 3,
 
 ):
     with open(data_path, 'r') as f:

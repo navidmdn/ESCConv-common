@@ -14,6 +14,7 @@ VALID_STRATEGIES = [
     "Others"
 ]
 
+
 def preprocess_conversation(conversation: Dict, conversation_window=1) -> Dict:
     strategy = conversation['strategy'][0]
     dialog_history = conversation["dialog_history"][-conversation_window:]
@@ -24,12 +25,12 @@ def preprocess_conversation(conversation: Dict, conversation_window=1) -> Dict:
 
     input_txt += f"<supporter> {conversation['response']}"
     return {
-        "context": input_txt,
+        "sentence": input_txt,
         "strategy": strategy,
     }
 
 def preprocess(
-        data_path: str = "test.json",
+        data_path: str = "train.json",
         output_prefix: str = "sfe_",
 ):
     data = []
@@ -42,7 +43,7 @@ def preprocess(
         examples = []
         for conversation in data:
             # for now skipping multi strategy and irrelevant ones
-            if len(conversation['strategy']) > 1:
+            if len(conversation['strategy']) > 1 or conversation['strategy'][0] == "":
                 continue
             assert conversation['strategy'][0] in VALID_STRATEGIES
             examples.append(preprocess_conversation(conversation))

@@ -19,15 +19,15 @@ import numpy as np
 import torch
 from accelerate import Accelerator
 from datasets import load_dataset
-from peft import LoraConfig, PromptTuningConfig, PromptTuningInit, TaskType, MultitaskPromptTuningConfig, MultitaskPromptTuningInit
+from peft import LoraConfig, PromptTuningConfig, PromptTuningInit, TaskType, MultitaskPromptTuningConfig, \
+    MultitaskPromptTuningInit
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,\
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, \
     HfArgumentParser, TrainingArguments
 from original_data.data_handler import get_strategy, InputPreprocessor
 from transformers import Trainer
 from peft import get_peft_model
 from transformers import default_data_collator
-
 
 tqdm.pandas()
 
@@ -114,7 +114,7 @@ def main():
     # when running locally on cpu
     # model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
 
-    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name,)
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, )
 
     # Step 2: Load the dataset
 
@@ -203,7 +203,7 @@ def main():
             peft_config = PromptTuningConfig(
                 task_type=TaskType.CAUSAL_LM,
                 prompt_tuning_init=PromptTuningInit.TEXT,
-                num_virtual_tokens=25,
+                num_virtual_tokens=50,
                 prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
                 tokenizer_name_or_path=script_args.model_name,
             )
@@ -211,10 +211,19 @@ def main():
             peft_config = MultitaskPromptTuningConfig(
                 task_type=TaskType.CAUSAL_LM,
                 prompt_tuning_init=MultitaskPromptTuningInit.TEXT,
-                num_virtual_tokens=25,
+                num_virtual_tokens=50,
                 prompt_tuning_init_text="Continue the following conversation assuming that you are an emotional supporter",
                 num_tasks=len(strategy_list),
                 tokenizer_name_or_path=script_args.model_name,
+            )
+        elif script_args.peft_type == 'lora':
+            peft_config = LoraConfig(
+                task_type=TaskType.CAUSAL_LM,
+                inference_mode=False,
+                r=64,
+                lora_alpha=16,
+                lora_dropout=0.1,
+                bias="all"
             )
         else:
             raise NotImplementedError()
