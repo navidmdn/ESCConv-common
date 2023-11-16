@@ -8,6 +8,7 @@ import re
 import evaluate as evallib
 import torch
 import nltk
+import json
 from sklearn.metrics import accuracy_score
 from datasets import load_dataset
 from original_data.data_handler import InputPreprocessor
@@ -23,11 +24,14 @@ def calculate_belu(responses, targets):
     b3 = []
     b2 = []
     stemmer = nltk.stem.PorterStemmer()
-
-    for resp, target in zip(responses, targets):
+    print("calculating bleu score...")
+    for resp, target in tqdm(zip(responses, targets), total=len(responses)):
 
         ref = nltk.tokenize.word_tokenize(target)
         hyp = nltk.tokenize.word_tokenize(resp)
+
+        ref = [stemmer.stem(w) for w in ref]
+        hyp = [stemmer.stem(w) for w in hyp]
 
         b4.append(sentence_bleu([ref], hyp, weights=(0.25, 0.25, 0.25, 0.25)))
         b3.append(sentence_bleu([ref], hyp, weights=(0.33, 0.33, 0.33)))
@@ -47,8 +51,8 @@ def calculate_rouge(responses, targets):
     # rougeLSum expects newline after each sentence
     preds = ["\n".join(nltk.sent_tokenize(pred)) for pred in responses]
     labels = ["\n".join(nltk.sent_tokenize(label)) for label in targets]
-
-    for pred, label in zip(preds, labels):
+    print("calculating rouge score...")
+    for pred, label in tqdm(zip(preds, labels), total=len(preds)):
         result = rouge.compute(predictions=[pred], references=[labels], use_stemmer=True)
         rouge1.append(result['rouge1'])
         rouge2.append(result['rouge2'])
@@ -97,7 +101,7 @@ def calculate_evaluation_metrics(responses, targets):
 
 def evaluate_strategy_conditioned_response_generator(model_path, strategy_path, test_data_path,
                                                      cache_dir=None, experiment_name='default', batch_size=16,
-                                                     sample_size=None):
+                                                     sample_size=None, from_cache=None):
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -139,24 +143,38 @@ def evaluate_strategy_conditioned_response_generator(model_path, strategy_path, 
 
     dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
 
-    responses = []
-    targets = []
 
-    print("generating responses...")
-    for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset)//batch_size):
+    if from_cache is not None:
+        data = []
+        with open(from_cache, 'r') as f:
+            for line in f:
+                data.append(json.loads(line))
+            responses = [d['response'] for d in data]
+            targets = [d['target'] for d in data]
+    else:
+        responses = []
+        targets = []
 
-        input_ids = batch['input_ids'].to(device)
-        labels = batch['labels'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
+        print("generating responses...")
+        for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset)//batch_size):
 
-        outputs = model.generate(input_ids, attention_mask=attention_mask, max_length=128,
-                                 num_beams=3, repetition_penalty=1.1,)
-        res = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+            input_ids = batch['input_ids'].to(device)
+            labels = batch['labels'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
 
-        labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
-        targets.extend(tokenizer.batch_decode(labels, skip_special_tokens=True))
+            outputs = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=64,
+                                     num_beams=3, repetition_penalty=1.1,)
+            res = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
-        responses.extend(res)
+            labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
+            targets.extend(tokenizer.batch_decode(labels, skip_special_tokens=True))
+
+            responses.extend(res)
+
+        comparisons = [{'response': r, 'target': t} for r, t in zip(responses, targets)]
+        with open('outputs.json', 'w') as f:
+            for comp in comparisons:
+                f.write(json.dumps(comp) + '\n')
 
     metrics = {}
     b2, b3, b4 = calculate_belu(responses, targets)

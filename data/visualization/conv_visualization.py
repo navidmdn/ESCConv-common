@@ -2,21 +2,31 @@ import json
 
 from flask import Flask, render_template, request, redirect, url_for
 import random
-
+import json
 app = Flask(__name__)
 
 # ESConve data path
 # data_path = '../../original_data/train_ann_extes.json'
 
 # ExTES data path
-data_path = '../ExTES/train.json'
+data_path = '../../original_data/test.json'
+#model_response_path = None # If you want to visualize model responses, set this to the path of the model response file
+
+model_response_path = '../../outputs.json'
+gens = []
+if model_response_path is not None:
+    with open(model_response_path, 'r') as f:
+        for line in f:
+            obj = json.loads(line)
+            gens.append(obj['response'])
+
 
 # Sample dataset of conversations
 # This should be replaced with your actual dataset
 
 conversations = []
 with open(data_path, 'r') as f:
-    for line in f:
+    for i, line in enumerate(f):
         obj = json.loads(line)
         obj['index'] = len(conversations) + 1
         messages = []
@@ -28,6 +38,9 @@ with open(data_path, 'r') as f:
             messages.append({"speaker": speaker, "text": text, "strategy": strategy})
         resp_strategy = obj['strategy'][0] if isinstance(obj['strategy'], list) else obj['strategy']
         messages.append({'speaker': 'supporter', 'text': obj['response'], 'strategy': resp_strategy})
+        if model_response_path is not None:
+            messages[-1].update({"gen_response": gens[i]})
+
         metadata = {
             'emotion_type': obj['emotion_type'],
             'problem_type': obj['problem_type'],

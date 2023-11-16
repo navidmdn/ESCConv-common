@@ -7,6 +7,7 @@
         .message { margin: 10px; padding: 5px; }
         .seeker { background-color: #D2E5FF; }
         .supporter { background-color: #FFD2D2; }
+        .model { background-color: #D2FFD2; }
         .metadata-box {
             border: 1px solid #ccc;
             padding: 10px;
@@ -52,6 +53,11 @@
             {% endif %}
             <p><strong>{{ message.speaker }}:</strong> {{ message.text }}</p>
         </div>
+        {% if message.gen_response %}
+            <div class="message model">
+                <p><strong>Model:</strong> {{ message.gen_response }}</p>
+            </div>
+        {% endif %}
     {% endfor %}
 
 
