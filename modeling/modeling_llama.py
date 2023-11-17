@@ -965,7 +965,7 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.prefix_projection_l1 = nn.Linear(config.conv_hidden_size, config.hidden_size, bias=False)
-        self.prefix_projection_l2 = nn.Linear(config.conv_hidden_size, config.hidden_size, bias=False)
+        self.prefix_projection_l2 = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
         # Initialize weights and apply final processing
         self.post_init()
 
@@ -995,8 +995,8 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
         attention_mask: Optional[torch.Tensor] = None,
         position_ids: Optional[torch.LongTensor] = None,
         past_key_values: Optional[List[torch.FloatTensor]] = None,
-        conversation_history_encodings: Optional[torch.FloatTensor] = None, # (batch_size, (sum of num prev utterances), conv_hidden_size)
-        conversation_history_lengths: Optional[torch.LongTensor] = None, # (batch_size,
+        conversation_history_encodings: Optional[torch.FloatTensor] = None, # (batch_size, max_history_len, conv_hidden_size)
+        conversation_history_mask: Optional[torch.Tensor] = None, # (batch_size, max_history_len)
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
@@ -1030,80 +1030,44 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
 
-        output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
-        output_hidden_states = (
-            output_hidden_states if output_hidden_states is not None else self.config.output_hidden_states
-        )
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
         # todo: project conversation history encodings to hidden size
         # then build all input embeds
         batch_size = input_ids.size(0)
+        history_len = conversation_history_encodings.size(1)
+
         prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.config.conv_hidden_size))
         prefix_encodings = torch.relu(prefix_encodings)
         prefix_encodings = self.prefix_projection_l2(prefix_encodings)
-        prefix_encodings = prefix_encodings.view(batch_size, -1, self.config.hidden_size)
+        prefix_encodings = prefix_encodings.view(batch_size, history_len, self.config.hidden_size)
 
         input_embs = self.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
+        prefix_embs = self.model.embed_tokens(prefix_encodings) #(batch_size, prefix_len, hidden_size)
 
-        # separate prefixes based on conversation history lengths
-        prefix_embs = torch.split(prefix_encodings, conversation_history_lengths.tolist(), dim=1) # tuple of (batch_size, num_prev_utterances, hidden_size)
-        max_history_len = torch.max(conversation_history_lengths)
+        full_input_embs = torch.cat([prefix_embs, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
+        full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
 
+        if labels is not None:
+            prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
+            labels = torch.cat((prefix_labels, labels), dim=1)
 
-
-
-
-        # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-        outputs = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
+        return super().forward(
+            input_ids=None,
+            attention_mask=full_attention_mask,
             position_ids=position_ids,
             past_key_values=past_key_values,
-            inputs_embeds=inputs_embeds,
+            inputs_embeds=full_input_embs,
+            labels=labels,
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
 
-        hidden_states = outputs[0]
-        if self.config.pretraining_tp > 1:
-            lm_head_slices = self.lm_head.weight.split(self.vocab_size // self.config.pretraining_tp, dim=0)
-            logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(self.config.pretraining_tp)]
-            logits = torch.cat(logits, dim=-1)
-        else:
-            logits = self.lm_head(hidden_states)
-        logits = logits.float()
-
-        loss = None
-        if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, self.config.vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
-
-        if not return_dict:
-            output = (logits,) + outputs[1:]
-            return (loss,) + output if loss is not None else output
-
-        return CausalLMOutputWithPast(
-            loss=loss,
-            logits=logits,
-            past_key_values=outputs.past_key_values,
-            hidden_states=outputs.hidden_states,
-            attentions=outputs.attentions,
-        )
-
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
+
+        #TODO: debug the full behavior of this function
         if past_key_values is not None:
             past_length = past_key_values[0][0].shape[2]
 
@@ -1115,9 +1079,21 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
                 remove_prefix_length = input_ids.shape[1] - 1
 
             input_ids = input_ids[:, remove_prefix_length:]
+        else:
+            inputs_embeds = self.word_embeddings(input_ids)
+            history_embs = kwargs.get("conversation_history_encodings", None)
+            assert history_embs is not None, "Prefix must be provided when past_key_values is None"
+            kwargs["inputs_embeds"] = torch.cat((history_embs, inputs_embeds), dim=1)
+            kwargs["input_ids"] = None
+
+        if attention_mask is not None:
+            history_attention_mask = kwargs.get("conversation_history_mask", None)
+            assert history_attention_mask is not None, "when there is attention mask there must be history attention mask"
+            attention_mask = torch.cat((history_attention_mask, attention_mask), dim=1)
 
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
+            # todo: check if in normal cases we have position ids and check the effect of building new position ids for prefixes
             # create position_ids on the fly for batch generation
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
