@@ -14,6 +14,7 @@ from peft import get_peft_model
 from modeling.modeling_llama import LlamaForCausalLMWithConditionalPrompt
 from transformers import LlamaConfig, LlamaTokenizer
 
+
 class LLamaPreprocessingForCLMWithConversationPrefix:
     def __init__(self, tokenizer, max_length, max_history_length=30):
         self.tokenizer = tokenizer
@@ -141,11 +142,11 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
         history_encodings = [example['conversation_history_encodings'] for example in batch]
         history_mask = [example['conversation_history_mask'] for example in batch]
 
-        input_ids = torch.stack(input_ids)
-        attention_mask = torch.stack(attention_mask)
-        labels = torch.stack(labels)
-        history_encodings = torch.stack(history_encodings)
-        history_mask = torch.stack(history_mask)
+        input_ids = torch.tensor(input_ids)
+        attention_mask = torch.tensor(attention_mask)
+        labels = torch.tensor(labels)
+        history_encodings = torch.tensor(history_encodings)
+        history_mask = torch.tensor(history_mask)
 
         return {
             'input_ids': input_ids,
@@ -168,7 +169,7 @@ class ScriptArguments:
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=4, metadata={"help": "the batch size"})
-    seq_length: Optional[int] = field(default=256, metadata={"help": "Input sequence length"})
+    seq_length: Optional[int] = field(default=1024, metadata={"help": "Input sequence length"})
     eval_steps: Optional[int] = field(default=25, metadata={"help": "the number of evaluation steps"})
     gradient_accumulation_steps: Optional[int] = field(
         default=8, metadata={"help": "the number of gradient accumulation steps"}
@@ -240,7 +241,7 @@ def main():
 
     #todo: for test using a small llama
     tokenizer = AutoTokenizer.from_pretrained('pretrained_models/llama2-7b-chat-hf')
-    config = LlamaConfig(num_attention_heads=4, num_hidden_layers=2, num_key_value_heads=4, hidden_size=100,
+    config = LlamaConfig(num_attention_heads=4, num_hidden_layers=2, num_key_value_heads=4, hidden_size=128,
                          conv_hidden_size=script_args.conv_hidden_size)
     print(config)
     model = LlamaForCausalLMWithConditionalPrompt(config)

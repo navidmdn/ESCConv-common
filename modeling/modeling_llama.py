@@ -1041,9 +1041,8 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
         prefix_encodings = prefix_encodings.view(batch_size, history_len, self.config.hidden_size)
 
         input_embs = self.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
-        prefix_embs = self.model.embed_tokens(prefix_encodings) #(batch_size, prefix_len, hidden_size)
 
-        full_input_embs = torch.cat([prefix_embs, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
+        full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
         full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
 
         if labels is not None:
