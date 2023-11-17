@@ -21,6 +21,9 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
         self.max_length = max_length
 
         self.max_history_length = max_history_length
+        self.tokenizer.add_bos_token = True
+        self.tokenizer.add_eos_token = True
+
 
     def truncate_or_pad(self, tokens, max_length, pad_token_id):
         if len(tokens) > max_length:
@@ -30,6 +33,9 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
         return tokens
 
     def preprocess_for_llama_chat(self, example):
+
+        assert self.tokenizer.add_bos_token and self.tokenizer.add_eos_token
+
         history = example['dialog_history']
         speakers = example['prev_speakers']
         dialog: List[Message] = []
