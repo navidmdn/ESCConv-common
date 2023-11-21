@@ -35,7 +35,7 @@ from transformers.modeling_utils import PreTrainedModel
 from transformers.models.llama.modeling_llama import LlamaForCausalLM
 from transformers.modeling_outputs import BaseModelOutputWithPast, CausalLMOutputWithPast,\
     SequenceClassifierOutputWithPast
-
+from transformers.generation import GenerationConfig, GenerationMixin
 from transformers.utils import (
     add_start_docstrings,
     add_start_docstrings_to_model_forward,
@@ -956,7 +956,7 @@ class LlamaModel(LlamaPreTrainedModel):
         )
 
 
-class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
+class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
 
     def __init__(self, prefix_fanout, conv_hidden_size, base_model):
         super().__init__()
@@ -964,12 +964,18 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
         self.prefix_fanout = prefix_fanout
         self.conv_hidden_size = conv_hidden_size
         self.hidden_size = base_model.config.hidden_size
-
+        self.main_input_name = "input_ids"
+        self.device = base_model.device
         self.prefix_projection_l1 = nn.Linear(self.conv_hidden_size, self.hidden_size, bias=False)
         self.prefix_projection_l2 = nn.Linear(self.hidden_size, self.prefix_fanout*self.hidden_size, bias=False)
-
+        self.config = self.base_model.config
+        self.generation_config = GenerationConfig.from_model_config(self.config) if self.can_generate() else None
     def get_input_embeddings(self):
         return self.base_model.get_input_embeddings()
+
+    @classmethod
+    def can_generate(cls) -> bool:
+        return True
 
     def forward(
         self,
@@ -1015,20 +1021,28 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
         # todo: project conversation history encodings to hidden size
         # then build all input embeds
         batch_size = input_ids.size(0)
-        history_len = conversation_history_encodings.size(1) * self.prefix_fanout
+        input_embs = self.base_model.model.embed_tokens(input_ids)  # (batch_size, max_len, hidden_size)
 
-        prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.conv_hidden_size)) # (batch_size x history_len * conv_hidden_size)
-        prefix_encodings = torch.relu(prefix_encodings)
-        prefix_encodings = self.prefix_projection_l2(prefix_encodings) # (batch_size x history_len * hidden_size)
-        prefix_encodings = prefix_encodings.view(batch_size, history_len, self.hidden_size)
+        if conversation_history_encodings is not None:
+            history_len = conversation_history_encodings.size(1) * self.prefix_fanout
 
-        input_embs = self.base_model.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
-        prefix_encodings = prefix_encodings.to(input_embs.dtype)
-        prefix_encodings = prefix_encodings.to(input_embs.device)
-        full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
+            prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.conv_hidden_size)) # (batch_size x history_len * conv_hidden_size)
+            prefix_encodings = torch.relu(prefix_encodings)
+            prefix_encodings = self.prefix_projection_l2(prefix_encodings) # (batch_size x history_len * hidden_size)
+            prefix_encodings = prefix_encodings.view(batch_size, history_len, self.hidden_size)
 
-        conversation_history_mask = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1).to(attention_mask.device)
-        full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
+            prefix_encodings = prefix_encodings.to(input_embs.dtype)
+            prefix_encodings = prefix_encodings.to(input_embs.device)
+            full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
+        else:
+            full_input_embs = input_embs
+
+        if conversation_history_mask is not None:
+            conversation_history_mask = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1).to(attention_mask.device)
+            full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
+        else:
+            # happens during generation with past key values
+            full_attention_mask = attention_mask
 
         if labels is not None:
             prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
@@ -1042,7 +1056,7 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
         # print("model:", self.base_model.device, self.base_model.model.embed_tokens.weight.device, self.base_model.model.embed_tokens.weight.dtype)
         # print("*"*10)
 
-        return self.base_model(
+        output = self.base_model(
             input_ids=None,
             attention_mask=full_attention_mask,
             position_ids=position_ids,
@@ -1054,6 +1068,7 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
+        return output
 
     def prepare_inputs_for_generation(
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
@@ -1071,22 +1086,17 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
                 remove_prefix_length = input_ids.shape[1] - 1
 
             input_ids = input_ids[:, remove_prefix_length:]
-        else:
-            inputs_embeds = self.base_model.word_embeddings(input_ids)
-            history_embs = kwargs.get("conversation_history_encodings", None)
-            assert history_embs is not None, "Prefix must be provided when past_key_values is None"
-            kwargs["inputs_embeds"] = torch.cat((history_embs, inputs_embeds), dim=1)
-            kwargs["input_ids"] = None
 
-        if attention_mask is not None:
-            history_attention_mask = kwargs.get("conversation_history_mask", None)
-            assert history_attention_mask is not None, "when there is attention mask there must be history attention mask"
-            attention_mask = torch.cat((history_attention_mask, attention_mask), dim=1)
+        conversation_history_encodings = kwargs.get("conversation_history_encodings", None)
+        conversation_history_mask = kwargs.get("conversation_history_mask", None)
 
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
             # todo: check if in normal cases we have position ids and check the effect of building new position ids for prefixes
             # create position_ids on the fly for batch generation
+            conversation_history_mask_extended = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1).to(attention_mask.device)
+            attention_mask = torch.cat((conversation_history_mask_extended, attention_mask), dim=1)
+
             position_ids = attention_mask.long().cumsum(-1) - 1
             position_ids.masked_fill_(attention_mask == 0, 1)
             if past_key_values:
@@ -1098,12 +1108,19 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
         else:
             model_inputs = {"input_ids": input_ids}
 
+        if past_key_values is not None:
+            tmp_conv_history_enc = None
+        else:
+            tmp_conv_history_enc = conversation_history_encodings
+
         model_inputs.update(
             {
                 "position_ids": position_ids,
                 "past_key_values": past_key_values,
                 "use_cache": kwargs.get("use_cache"),
                 "attention_mask": attention_mask,
+                "conversation_history_encodings": tmp_conv_history_enc,
+                "conversation_history_mask": None,
             }
         )
         return model_inputs

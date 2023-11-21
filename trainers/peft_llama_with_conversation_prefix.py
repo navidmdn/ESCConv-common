@@ -182,14 +182,14 @@ class ScriptArguments:
     validation_file: Optional[str] = field(metadata={"help": "validation file path"})
     peft_type: Optional[str] = field(default="lora", metadata={"help": "peft type"})
     conv_hidden_size: Optional[int] = field(default=768, metadata={"help": "the hidden size of the conversation encoder"})
-    prefix_fanout: Optional[int] = field(default=1, metadata={"help": "the fanout of the prefix"})
+    prefix_fanout: Optional[int] = field(default=2, metadata={"help": "the fanout of the prefix"})
 
-    model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-chat-hf", metadata={"help": "the model name"})
+    model_name: Optional[str] = field(default="nickypro/tinyllama-15M", metadata={"help": "the model name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "the text field of the dataset"})
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
     batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
-    seq_length: Optional[int] = field(default=1024, metadata={"help": "Input sequence length"})
+    seq_length: Optional[int] = field(default=200, metadata={"help": "Input sequence length"})
     eval_steps: Optional[int] = field(default=25, metadata={"help": "the number of evaluation steps"})
     gradient_accumulation_steps: Optional[int] = field(
         default=8, metadata={"help": "the number of gradient accumulation steps"}
@@ -344,6 +344,7 @@ def main():
         max_steps=script_args.max_steps,
         report_to=script_args.log_with,
         save_steps=script_args.save_steps,
+        save_safetensors=False,
         evaluation_strategy="steps",
         fp16=script_args.fp16,
         eval_steps=script_args.eval_steps,

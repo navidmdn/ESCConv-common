@@ -1,6 +1,8 @@
+import os
 import pandas as pd
 import fire
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoConfig, AutoTokenizer, AutoModelForSeq2SeqLM, AutoModelForCausalLM
+from modeling.modeling_llama import LlamaForCausalLMWithConditionalPrompt
 from original_data.data_handler import get_strategy, load_json
 from nltk.translate.bleu_score import sentence_bleu
 from tqdm import tqdm
@@ -14,6 +16,9 @@ from datasets import load_dataset
 from original_data.data_handler import InputPreprocessor
 from torch.utils.data import DataLoader
 from transformers import DataCollatorForSeq2Seq
+from safetensors.torch import load_model, save_model
+from trainers.peft_llama_with_conversation_prefix import LLamaPreprocessingForCLMWithConversationPrefix
+from transformers import LlamaForCausalLM
 
 # need to run onece
 # nltk.download('punkt')
@@ -26,7 +31,6 @@ def calculate_belu(responses, targets):
     stemmer = nltk.stem.PorterStemmer()
     print("calculating bleu score...")
     for resp, target in tqdm(zip(responses, targets), total=len(responses)):
-
         ref = nltk.tokenize.word_tokenize(target)
         hyp = nltk.tokenize.word_tokenize(resp)
 
@@ -60,6 +64,7 @@ def calculate_rouge(responses, targets):
         rougeLsum.append(result['rougeLsum'])
 
     return rouge1, rouge2, rougeL, rougeLsum
+
 
 def calculate_evaluation_metrics(responses, targets):
     b4_sum = b3_sum = b2_sum = 0
@@ -102,7 +107,6 @@ def calculate_evaluation_metrics(responses, targets):
 def evaluate_strategy_conditioned_response_generator(model_path, strategy_path, test_data_path,
                                                      cache_dir=None, experiment_name='default', batch_size=16,
                                                      sample_size=None, from_cache=None):
-
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
@@ -143,7 +147,6 @@ def evaluate_strategy_conditioned_response_generator(model_path, strategy_path, 
 
     dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
 
-
     if from_cache is not None:
         data = []
         with open(from_cache, 'r') as f:
@@ -156,14 +159,13 @@ def evaluate_strategy_conditioned_response_generator(model_path, strategy_path, 
         targets = []
 
         print("generating responses...")
-        for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset)//batch_size):
-
+        for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset) // batch_size):
             input_ids = batch['input_ids'].to(device)
             labels = batch['labels'].to(device)
             attention_mask = batch['attention_mask'].to(device)
 
             outputs = model.generate(input_ids, attention_mask=attention_mask, max_new_tokens=64,
-                                     num_beams=3, repetition_penalty=1.1,)
+                                     num_beams=3, repetition_penalty=1.1, )
             res = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
             labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
@@ -284,18 +286,104 @@ def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test
     return metrics
 
 
+def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cache_dir=None, batch_size=16, sample_size=None,
+                                                prefix_fanout=2, conv_hidden_size=768, experiment_name='default',
+                                                seq_length=200):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path)
+    tokenizer.truncation_side = 'left'
+
+    config = AutoConfig.from_pretrained('nickypro/tinyllama-15M')
+    base_model = LlamaForCausalLM(config=config)
+
+    model = LlamaForCausalLMWithConditionalPrompt(base_model=base_model, conv_hidden_size=conv_hidden_size,
+                                                  prefix_fanout=prefix_fanout)
+
+    if os.path.exists(os.path.join(model_path, 'model.safetensors')):
+        load_model(model, os.path.join(model_path, 'model.safetensors'))
+    elif os.path.exists(os.path.join(model_path, 'pytorch_model.bin')):
+        model.load_state_dict(torch.load(os.path.join(model_path, 'pytorch_model.bin')))
+    else:
+        raise ValueError("No model found")
+
+    model.to(device)
+
+    test_dataset = load_dataset(
+        'json',
+        data_files={'test': test_data_path},
+        cache_dir=cache_dir,
+        # for testing
+    )['test']
+
+    if sample_size is not None:
+        test_dataset = test_dataset.shuffle(seed=42).select(range(sample_size))
+
+
+    data_processor = LLamaPreprocessingForCLMWithConversationPrefix(tokenizer, seq_length)
+    preprocessor_func = data_processor.preprocess_for_llama_chat
+    data_collator = data_processor.collate_batch
+
+    test_dataset = test_dataset.map(preprocessor_func, num_proc=4, remove_columns=test_dataset.column_names)
+    dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
+
+    responses = []
+    targets = []
+
+    print("generating responses...")
+    for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset) // batch_size):
+        input_ids = batch['input_ids'].to(device)
+        labels = batch['labels'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        conversation_history_encodings = batch['conversation_history_encodings'].to(device)
+        conversation_history_mask = batch['conversation_history_mask'].to(device)
+
+        outputs = model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            conversation_history_encodings=conversation_history_encodings,
+            conversation_history_mask=conversation_history_mask,
+            max_new_tokens=64,
+            num_beams=3,
+            repetition_penalty=1.1,
+        )
+        res = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+
+        labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
+        targets.extend(tokenizer.batch_decode(labels, skip_special_tokens=True))
+
+        responses.extend(res)
+
+    b2, b3, b4 = calculate_belu(responses, targets)
+    rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)
+
+    df_metrics = {
+        'B2': b2,
+        'B3': b3,
+        'B4': b4,
+        'Rouge1': rouge1,
+        'Rouge2': rouge2,
+        'RougeL': rougeL,
+        'RougeLsum': rougeLsum,
+        'response': responses,
+        'target': targets,
+    }
+
+    df = pd.DataFrame(df_metrics)
+    df.to_csv(f'{experiment_name}.csv', index=False, header=True)
+
+
 def evaluate(
         model_path,
         test_data_path,
         base_model='facebook/bart-base',
-        model_type='joint_strategy_utt',
+        model_type='conv_prefix_clm',
         strategy_path=None,
         cache_dir=None,
-        experiment_name='default',
+        experiment_name='conv_prefix_clm',
         batch_size=32,
         sample_size=None,
 ):
-
     if model_type == 'joint_strategy_utt':
         results = evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test_data_path)
     elif model_type == 'utterance_generation_conditioned_on_strategy':
@@ -303,10 +391,12 @@ def evaluate(
         # assuming the tokenizer is saved in model_path
         results = evaluate_strategy_conditioned_response_generator(model_path, strategy_path, test_data_path, cache_dir,
                                                                    experiment_name, batch_size, sample_size)
+    elif model_type == 'conv_prefix_clm':
+        evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cache_dir=cache_dir,
+                                                    experiment_name=experiment_name, batch_size=batch_size,
+                                                    sample_size=sample_size)
     else:
         raise NotImplementedError
-
-    print(results)
 
 
 if __name__ == '__main__':
