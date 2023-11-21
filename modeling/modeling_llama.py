@@ -956,39 +956,21 @@ class LlamaModel(LlamaPreTrainedModel):
         )
 
 
-class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
-    _tied_weights_keys = ["lm_head.weight"]
+class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
 
-    def __init__(self, config):
-        super().__init__(config)
-        self.model = LlamaModel(config)
-        self.vocab_size = config.vocab_size
-        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.prefix_projection_l1 = nn.Linear(config.conv_hidden_size, config.hidden_size, bias=False)
-        self.prefix_projection_l2 = nn.Linear(config.hidden_size, config.hidden_size, bias=False)
-        # Initialize weights and apply final processing
-        self.post_init()
+    def __init__(self, prefix_fanout, conv_hidden_size, base_model):
+        super().__init__()
+        self.base_model = base_model
+        self.prefix_fanout = prefix_fanout
+        self.conv_hidden_size = conv_hidden_size
+        self.hidden_size = base_model.config.hidden_size
+
+        self.prefix_projection_l1 = nn.Linear(self.conv_hidden_size, self.hidden_size, bias=False)
+        self.prefix_projection_l2 = nn.Linear(self.hidden_size, self.prefix_fanout*self.hidden_size, bias=False)
 
     def get_input_embeddings(self):
-        return self.model.embed_tokens
+        return self.base_model.get_input_embeddings()
 
-    def set_input_embeddings(self, value):
-        self.model.embed_tokens = value
-
-    def get_output_embeddings(self):
-        return self.lm_head
-
-    def set_output_embeddings(self, new_embeddings):
-        self.lm_head = new_embeddings
-
-    def set_decoder(self, decoder):
-        self.model = decoder
-
-    def get_decoder(self):
-        return self.model
-
-    @add_start_docstrings_to_model_forward(LLAMA_INPUTS_DOCSTRING)
-    @replace_return_docstrings(output_type=CausalLMOutputWithPast, config_class=_CONFIG_FOR_DOC)
     def forward(
         self,
         input_ids: torch.LongTensor = None,
@@ -1033,23 +1015,24 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
         # todo: project conversation history encodings to hidden size
         # then build all input embeds
         batch_size = input_ids.size(0)
-        history_len = conversation_history_encodings.size(1)
+        history_len = conversation_history_encodings.size(1) * self.prefix_fanout
 
-        prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.config.conv_hidden_size))
+        prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.conv_hidden_size)) # (batch_size x history_len * conv_hidden_size)
         prefix_encodings = torch.relu(prefix_encodings)
-        prefix_encodings = self.prefix_projection_l2(prefix_encodings)
-        prefix_encodings = prefix_encodings.view(batch_size, history_len, self.config.hidden_size)
+        prefix_encodings = self.prefix_projection_l2(prefix_encodings) # (batch_size x history_len * hidden_size)
+        prefix_encodings = prefix_encodings.view(batch_size, history_len, self.hidden_size)
 
-        input_embs = self.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
-
+        input_embs = self.base_model.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
         full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
+
+        conversation_history_mask = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1)
         full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
 
         if labels is not None:
             prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
             labels = torch.cat((prefix_labels, labels), dim=1)
 
-        return super().forward(
+        return self.base_model(
             input_ids=None,
             attention_mask=full_attention_mask,
             position_ids=position_ids,
@@ -1079,7 +1062,7 @@ class LlamaForCausalLMWithConditionalPrompt(LlamaForCausalLM):
 
             input_ids = input_ids[:, remove_prefix_length:]
         else:
-            inputs_embeds = self.word_embeddings(input_ids)
+            inputs_embeds = self.base_model.word_embeddings(input_ids)
             history_embs = kwargs.get("conversation_history_encodings", None)
             assert history_embs is not None, "Prefix must be provided when past_key_values is None"
             kwargs["inputs_embeds"] = torch.cat((history_embs, inputs_embeds), dim=1)

@@ -8,11 +8,24 @@ from accelerate import Accelerator
 from datasets import load_dataset
 from peft import LoraConfig, TaskType
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, \
-    HfArgumentParser, TrainingArguments
+    HfArgumentParser, TrainingArguments, AutoConfig
 from transformers import Trainer
 from peft import get_peft_model
 from modeling.modeling_llama import LlamaForCausalLMWithConditionalPrompt
-from transformers import LlamaConfig, LlamaTokenizer
+from transformers import LlamaConfig, LlamaTokenizer, LlamaForCausalLM
+
+
+def print_trainable_parameters(model):
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+    print(f"Total Parameters: {total_params}")
+    print(f"Trainable Parameters: {trainable_params}")
+
+
+def freeze_params(model):
+    for param in model.parameters():
+        param.requires_grad = False
 
 
 class LLamaPreprocessingForCLMWithConversationPrefix:
@@ -174,7 +187,7 @@ class ScriptArguments:
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "the text field of the dataset"})
     log_with: Optional[str] = field(default="none", metadata={"help": "use 'wandb' to log with wandb"})
     learning_rate: Optional[float] = field(default=1.41e-5, metadata={"help": "the learning rate"})
-    batch_size: Optional[int] = field(default=4, metadata={"help": "the batch size"})
+    batch_size: Optional[int] = field(default=2, metadata={"help": "the batch size"})
     seq_length: Optional[int] = field(default=1024, metadata={"help": "Input sequence length"})
     eval_steps: Optional[int] = field(default=25, metadata={"help": "the number of evaluation steps"})
     gradient_accumulation_steps: Optional[int] = field(
@@ -183,6 +196,7 @@ class ScriptArguments:
     cache_dir: Optional[str] = field(default=None, metadata={"help": "the cache directory"})
     load_in_8bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 8 bits precision"})
     load_in_4bit: Optional[bool] = field(default=False, metadata={"help": "load the model in 4 bits precision"})
+    fp16: Optional[bool] = field(default=False, metadata={"help": "trian model in fp16 precision"})
     use_peft: Optional[bool] = field(default=False, metadata={"help": "Wether to use PEFT or not to train adapters"})
     trust_remote_code: Optional[bool] = field(default=False, metadata={"help": "Enable `trust_remote_code`"})
     output_dir: Optional[str] = field(default="output", metadata={"help": "the output directory"})
@@ -230,28 +244,38 @@ def main():
         quantization_config = None
         torch_dtype = None
 
-    # model = AutoModelForCausalLM.from_pretrained(
-    #     script_args.model_name,
-    #     quantization_config=quantization_config,
-    #     device_map=device_map,
-    #     cache_dir=script_args.cache_dir,
-    #     trust_remote_code=script_args.trust_remote_code,
-    #     torch_dtype=torch_dtype,
-    #     use_auth_token=script_args.use_auth_token,
-    # )
-    # todo: add conv_hidden_size to model config
-    # when running locally on cpu
-    # model = AutoModelForCausalLM.from_pretrained(script_args.model_name)
 
-    # tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, cache_dir=script_args.cache_dir)
+    #todo: for testing
+    # tokenizer = AutoTokenizer.from_pretrained('pretrained_models/')
+    # config = LlamaConfig(num_attention_heads=4, num_hidden_layers=2, num_key_value_heads=4, hidden_size=128)
+    # base_model = LlamaForCausalLM(config)
 
-    #todo: for test using a small llama
-    tokenizer = AutoTokenizer.from_pretrained('pretrained_models/llama2-7b-chat-hf')
-    config = LlamaConfig(num_attention_heads=4, num_hidden_layers=2, num_key_value_heads=4, hidden_size=128,
-                         conv_hidden_size=script_args.conv_hidden_size)
-    print(config)
-    model = LlamaForCausalLMWithConditionalPrompt(config)
+    config = AutoConfig.from_pretrained(script_args.model_name, cache_dir=script_args.cache_dir)
+
+    base_model = LlamaForCausalLM.from_pretrained(
+        script_args.model_name,
+        config=config,
+        quantization_config=quantization_config,
+        device_map=device_map,
+        cache_dir=script_args.cache_dir,
+        trust_remote_code=script_args.trust_remote_code,
+        torch_dtype=torch_dtype,
+        use_auth_token=script_args.use_auth_token,
+    )
+    freeze_params(base_model)
+    base_model.eval()
+
+    print("base model's memory footprint: ", base_model.get_memory_footprint())
+
+    model = LlamaForCausalLMWithConditionalPrompt(prefix_fanout=2, conv_hidden_size=script_args.conv_hidden_size,
+                                                  base_model=base_model)
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, cache_dir=script_args.cache_dir)
+
+    print_trainable_parameters(model)
+
+
     ###############
+
 
     # Step 2: Load the dataset
 
@@ -271,8 +295,8 @@ def main():
     columns = raw_datasets["train"].column_names
 
     # todo: just for test
-    raw_datasets['train'] = raw_datasets['train'].select(range(100))
-    raw_datasets['validation'] = raw_datasets['validation'].select(range(100))
+    # raw_datasets['train'] = raw_datasets['train'].select(range(100))
+    # raw_datasets['validation'] = raw_datasets['validation'].select(range(100))
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -320,6 +344,7 @@ def main():
         report_to=script_args.log_with,
         save_steps=script_args.save_steps,
         evaluation_strategy="steps",
+        fp16=script_args.fp16,
         eval_steps=script_args.eval_steps,
         save_total_limit=script_args.save_total_limit,
         push_to_hub=script_args.push_to_hub,
