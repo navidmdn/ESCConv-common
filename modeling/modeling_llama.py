@@ -1023,14 +1023,24 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module):
         prefix_encodings = prefix_encodings.view(batch_size, history_len, self.hidden_size)
 
         input_embs = self.base_model.model.embed_tokens(input_ids) #(batch_size, max_len, hidden_size)
+        prefix_encodings = prefix_encodings.to(input_embs.dtype)
+        prefix_encodings = prefix_encodings.to(input_embs.device)
         full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
 
-        conversation_history_mask = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1)
+        conversation_history_mask = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1).to(attention_mask.device)
         full_attention_mask = torch.cat([conversation_history_mask, attention_mask], dim=1) #(batch_size, prefix_len + max_len)
 
         if labels is not None:
             prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
             labels = torch.cat((prefix_labels, labels), dim=1)
+
+        # print("****************")
+        # print("input_ids", input_ids.device, input_ids.dtype, input_ids.shape)
+        # print("full_attention_mask", full_attention_mask.device, full_attention_mask.dtype, full_attention_mask.shape)
+        # print("full_input_embs", full_input_embs.device, full_input_embs.dtype, full_input_embs.shape)
+        # print("labels", labels.device, labels.dtype, labels.shape)
+        # print("model:", self.base_model.device, self.base_model.model.embed_tokens.weight.device, self.base_model.model.embed_tokens.weight.dtype)
+        # print("*"*10)
 
         return self.base_model(
             input_ids=None,

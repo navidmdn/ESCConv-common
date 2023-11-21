@@ -182,6 +182,7 @@ class ScriptArguments:
     validation_file: Optional[str] = field(metadata={"help": "validation file path"})
     peft_type: Optional[str] = field(default="lora", metadata={"help": "peft type"})
     conv_hidden_size: Optional[int] = field(default=768, metadata={"help": "the hidden size of the conversation encoder"})
+    prefix_fanout: Optional[int] = field(default=1, metadata={"help": "the fanout of the prefix"})
 
     model_name: Optional[str] = field(default="meta-llama/Llama-2-7b-chat-hf", metadata={"help": "the model name"})
     dataset_text_field: Optional[str] = field(default="text", metadata={"help": "the text field of the dataset"})
@@ -267,7 +268,8 @@ def main():
 
     print("base model's memory footprint: ", base_model.get_memory_footprint())
 
-    model = LlamaForCausalLMWithConditionalPrompt(prefix_fanout=2, conv_hidden_size=script_args.conv_hidden_size,
+    model = LlamaForCausalLMWithConditionalPrompt(prefix_fanout=script_args.prefix_fanout,
+                                                  conv_hidden_size=script_args.conv_hidden_size,
                                                   base_model=base_model)
     tokenizer = AutoTokenizer.from_pretrained(script_args.model_name, cache_dir=script_args.cache_dir)
 
@@ -330,7 +332,6 @@ def main():
     print("label_ids decoded: ", tokenizer.decode(label_ids, skip_special_tokens=False))
 
     raw_datasets.remove_columns(["prompt_ids"])
-
 
     # Step 3: Define the training arguments
     training_args = TrainingArguments(

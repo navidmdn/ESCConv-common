@@ -1,5 +1,22 @@
-WANDB_ENTITY=navidmdn WANDB_PROJECT=strategy_follower PYTHONPATH=. python peft_prompt_tuning_clm.py \
---cache_dir "../hfcache" \
---train_file original_data/merged.json --strategy_file original_data/extes_strategy.json \
---validation_file original_data/valid.json --do_train --model_name_or_path ../../models/llama2-7b-hf --output_dir \
-./output/llamav2-prompt-tuning-exp4 --overwrite_output_dir --load_in_8bit
+PYTHONPATH=. WANDB_ENTITY=navidmdn WANDB_PROJECT=llama2chat-convprefix python trainers/peft_llama_with_conversation_prefix.py\
+ --train_file original_data/train.json --validation_file original_data/valid.json --output_dir output/llama2chat-convprefix-fo2 \
+ --seq_length 400 --model_name ../../models/llama2-7b-chat-hf/ --cache_dir ../hfcache/ --load_in_4bit\
+ --log_with wandb --prefix_fanout 2 --num_train_epochs 3
+
+PYTHONPATH=. WANDB_ENTITY=navidmdn WANDB_PROJECT=llama2chat-convprefix python trainers/peft_llama_with_conversation_prefix.py\
+ --train_file original_data/train.json --validation_file original_data/valid.json --output_dir output/llama2chat-convprefix-fo4 \
+ --seq_length 400 --model_name ../../models/llama2-7b-chat-hf/ --cache_dir ../hfcache/ --load_in_4bit\
+ --log_with wandb --prefix_fanout 4 --num_train_epochs 3
+
+PYTHONPATH=. WANDB_ENTITY=navidmdn WANDB_PROJECT=llama2chat-convprefix python trainers/peft_llama_with_conversation_prefix.py\
+ --train_file original_data/train.json --validation_file original_data/valid.json --output_dir output/llama2chat-convprefix-fo8 \
+ --seq_length 400 --model_name ../../models/llama2-7b-chat-hf/ --cache_dir ../hfcache/ --load_in_4bit\
+ --log_with wandb --prefix_fanout 8 --num_train_epochs 3
+
+PYTHONPATH=. WANDB_ENTITY=navidmdn WANDB_PROJECT=llama2chat-convprefix python trainers/peft_llama_with_conversation_prefix.py\
+ --train_file original_data/train.json --validation_file original_data/valid.json --output_dir output/llama2chat-convprefix-fo16 \
+ --seq_length 400 --model_name ../../models/llama2-7b-chat-hf/ --cache_dir ../hfcache/ --load_in_4bit\
+ --log_with wandb --prefix_fanout 16 --num_train_epochs 3
+
+
+
