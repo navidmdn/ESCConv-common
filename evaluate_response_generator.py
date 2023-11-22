@@ -10,15 +10,17 @@ import re
 import evaluate as evallib
 import torch
 import nltk
+from accelerate import Accelerator
 import json
 from sklearn.metrics import accuracy_score
 from datasets import load_dataset
 from original_data.data_handler import InputPreprocessor
 from torch.utils.data import DataLoader
-from transformers import DataCollatorForSeq2Seq
-from safetensors.torch import load_model, save_model
+from transformers import DataCollatorForSeq2Seq, BitsAndBytesConfig
+from safetensors.torch import load_model, save_model, load_file
 from trainers.peft_llama_with_conversation_prefix import LLamaPreprocessingForCLMWithConversationPrefix
 from transformers import LlamaForCausalLM
+
 
 # need to run onece
 # nltk.download('punkt')
@@ -286,28 +288,58 @@ def evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test
     return metrics
 
 
-def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cache_dir=None, batch_size=16, sample_size=None,
+# todo: use nickypro/tinyllama-15M for testing
+def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base_model_name, cache_dir=None,
+                                                batch_size=16, sample_size=None,
                                                 prefix_fanout=2, conv_hidden_size=768, experiment_name='default',
-                                                seq_length=200):
+                                                seq_length=400, load_in_8bit=False, load_in_4bit=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     tokenizer.truncation_side = 'left'
 
-    config = AutoConfig.from_pretrained('nickypro/tinyllama-15M')
-    base_model = LlamaForCausalLM(config=config)
+    if load_in_8bit and load_in_4bit:
+        raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+    elif load_in_8bit or load_in_4bit:
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=load_in_8bit, load_in_4bit=load_in_4bit
+        )
+        # Copy the model to each device
+        device_map = (
+            {"": Accelerator().local_process_index}
+        )
+        torch_dtype = torch.bfloat16
+    else:
+        device_map = None
+        quantization_config = None
+        torch_dtype = None
+
+    base_model = LlamaForCausalLM.from_pretrained(
+        base_model_name,
+        quantization_config=quantization_config,
+        device_map=device_map,
+        cache_dir=cache_dir,
+        torch_dtype=torch_dtype,
+    )
 
     model = LlamaForCausalLMWithConditionalPrompt(base_model=base_model, conv_hidden_size=conv_hidden_size,
                                                   prefix_fanout=prefix_fanout)
 
     if os.path.exists(os.path.join(model_path, 'model.safetensors')):
-        load_model(model, os.path.join(model_path, 'model.safetensors'))
+        state_dict = load_file(os.path.join(model_path, 'model.safetensors'))
     elif os.path.exists(os.path.join(model_path, 'pytorch_model.bin')):
-        model.load_state_dict(torch.load(os.path.join(model_path, 'pytorch_model.bin')))
+        state_dict = torch.load(os.path.join(model_path, 'pytorch_model.bin'))
+
     else:
         raise ValueError("No model found")
 
-    model.to(device)
+    state_dict = {k: v for k, v in state_dict.items() if 'base_model' not in k}
+    missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+    assert len(unexpected_keys) == 0
+    assert "prefix_projection_l1.weight" not in missing_keys
+    assert "prefix_projection_l2.weight" not in missing_keys
+
+    model = model.to(device)
 
     test_dataset = load_dataset(
         'json',
@@ -318,7 +350,6 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cach
 
     if sample_size is not None:
         test_dataset = test_dataset.shuffle(seed=42).select(range(sample_size))
-
 
     data_processor = LLamaPreprocessingForCLMWithConversationPrefix(tokenizer, seq_length)
     preprocessor_func = data_processor.preprocess_for_llama_chat
@@ -338,21 +369,29 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cach
         conversation_history_encodings = batch['conversation_history_encodings'].to(device)
         conversation_history_mask = batch['conversation_history_mask'].to(device)
 
-        outputs = model.generate(
-            input_ids,
-            attention_mask=attention_mask,
-            conversation_history_encodings=conversation_history_encodings,
-            conversation_history_mask=conversation_history_mask,
-            max_new_tokens=64,
-            num_beams=3,
-            repetition_penalty=1.1,
-        )
-        res = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        for _input_ids, _labels, _attention_mask, _conversation_history_encodings, _conversation_history_mask in \
+            zip(input_ids, labels, attention_mask, conversation_history_encodings, conversation_history_mask):
 
-        labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
-        targets.extend(tokenizer.batch_decode(labels, skip_special_tokens=True))
+            _input_ids = _input_ids[_labels == -100].unsqueeze(0)
+            _attention_mask = _attention_mask[_labels == -100].unsqueeze(0)
+            _conversation_history_encodings = _conversation_history_encodings.unsqueeze(0)
+            _conversation_history_mask = _conversation_history_mask.unsqueeze(0)
 
-        responses.extend(res)
+            outputs = model.generate(
+                _input_ids,
+                attention_mask=_attention_mask,
+                conversation_history_encodings=_conversation_history_encodings,
+                conversation_history_mask=_conversation_history_mask,
+                max_new_tokens=64,
+                num_beams=3,
+                repetition_penalty=1.1,
+            )
+
+            inputs_decoded = tokenizer.batch_decode(_input_ids, skip_special_tokens=True)[0]
+            response = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
+            responses.append(response.split(inputs_decoded)[-1].strip())
+            _labels = torch.where(_labels == -100, tokenizer.pad_token_id, _labels)
+            targets.append(tokenizer.decode(_labels, skip_special_tokens=True))
 
     b2, b3, b4 = calculate_belu(responses, targets)
     rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)
@@ -383,6 +422,9 @@ def evaluate(
         experiment_name='conv_prefix_clm',
         batch_size=32,
         sample_size=None,
+        prefix_fanout=2,
+        load_in_8bit=False,
+        load_in_4bit=False,
 ):
     if model_type == 'joint_strategy_utt':
         results = evaluate_joint_strategy_and_utterance_generator(model_path, base_model, test_data_path)
@@ -393,8 +435,10 @@ def evaluate(
                                                                    experiment_name, batch_size, sample_size)
     elif model_type == 'conv_prefix_clm':
         evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, cache_dir=cache_dir,
+                                                    base_model_name=base_model,
                                                     experiment_name=experiment_name, batch_size=batch_size,
-                                                    sample_size=sample_size)
+                                                    sample_size=sample_size, prefix_fanout=prefix_fanout,
+                                                    load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit)
     else:
         raise NotImplementedError
 
