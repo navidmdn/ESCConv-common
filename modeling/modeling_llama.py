@@ -1018,10 +1018,10 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
         "Hey, are you conscious? Can you talk to me?\nI'm not conscious, but I can talk to you."
         ```"""
 
-        # todo: project conversation history encodings to hidden size
         # then build all input embeds
         batch_size = input_ids.size(0)
         input_embs = self.base_model.model.embed_tokens(input_ids)  # (batch_size, max_len, hidden_size)
+        history_len = None
 
         if conversation_history_encodings is not None:
             history_len = conversation_history_encodings.size(1) * self.prefix_fanout
@@ -1033,6 +1033,7 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
 
             prefix_encodings = prefix_encodings.to(input_embs.dtype)
             prefix_encodings = prefix_encodings.to(input_embs.device)
+
             full_input_embs = torch.cat([prefix_encodings, input_embs], dim=1) #(batch_size, prefix_len + max_len, hidden_size)
         else:
             full_input_embs = input_embs
@@ -1074,7 +1075,6 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
         self, input_ids, past_key_values=None, attention_mask=None, inputs_embeds=None, **kwargs
     ):
 
-        #TODO: debug the full behavior of this function
         if past_key_values is not None:
             past_length = past_key_values[0][0].shape[2]
 
@@ -1092,7 +1092,6 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
 
         position_ids = kwargs.get("position_ids", None)
         if attention_mask is not None and position_ids is None:
-            # todo: check if in normal cases we have position ids and check the effect of building new position ids for prefixes
             # create position_ids on the fly for batch generation
             conversation_history_mask_extended = conversation_history_mask.repeat_interleave(self.prefix_fanout, dim=1).to(attention_mask.device)
             attention_mask = torch.cat((conversation_history_mask_extended, attention_mask), dim=1)

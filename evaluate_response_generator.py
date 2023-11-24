@@ -355,13 +355,13 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
     preprocessor_func = data_processor.preprocess_for_llama_chat
     data_collator = data_processor.collate_batch
 
-    test_dataset = test_dataset.map(preprocessor_func, num_proc=4, remove_columns=test_dataset.column_names)
+    test_dataset = test_dataset.map(preprocessor_func, num_proc=4, remove_columns=test_dataset.column_names,
+                                    fn_kwargs={"inference": True})
     dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
-
+    print(test_dataset[0]['labels'])
     responses = []
     targets = []
 
-    print("generating responses...")
     for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset) // batch_size):
         input_ids = batch['input_ids'].to(device)
         labels = batch['labels'].to(device)
@@ -369,29 +369,24 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
         conversation_history_encodings = batch['conversation_history_encodings'].to(device)
         conversation_history_mask = batch['conversation_history_mask'].to(device)
 
-        for _input_ids, _labels, _attention_mask, _conversation_history_encodings, _conversation_history_mask in \
-            zip(input_ids, labels, attention_mask, conversation_history_encodings, conversation_history_mask):
+        outputs = model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            conversation_history_encodings=conversation_history_encodings,
+            conversation_history_mask=conversation_history_mask,
+            max_new_tokens=64,
+            num_beams=3,
+            repetition_penalty=1.1,
+        )
 
-            _input_ids = _input_ids[_labels == -100].unsqueeze(0)
-            _attention_mask = _attention_mask[_labels == -100].unsqueeze(0)
-            _conversation_history_encodings = _conversation_history_encodings.unsqueeze(0)
-            _conversation_history_mask = _conversation_history_mask.unsqueeze(0)
+        response = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
-            outputs = model.generate(
-                _input_ids,
-                attention_mask=_attention_mask,
-                conversation_history_encodings=_conversation_history_encodings,
-                conversation_history_mask=_conversation_history_mask,
-                max_new_tokens=64,
-                num_beams=3,
-                repetition_penalty=1.1,
-            )
+        labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
+        references = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-            inputs_decoded = tokenizer.batch_decode(_input_ids, skip_special_tokens=True)[0]
-            response = tokenizer.batch_decode(outputs, skip_special_tokens=True)[0]
-            responses.append(response.split(inputs_decoded)[-1].strip())
-            _labels = torch.where(_labels == -100, tokenizer.pad_token_id, _labels)
-            targets.append(tokenizer.decode(_labels, skip_special_tokens=True))
+        responses.extend(response)
+        targets.extend(references)
+
 
     b2, b3, b4 = calculate_belu(responses, targets)
     rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)

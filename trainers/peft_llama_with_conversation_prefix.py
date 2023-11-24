@@ -45,7 +45,7 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
             tokens = [pad_token_id] * (max_length - len(tokens)) + tokens
         return tokens
 
-    def preprocess_for_llama_chat(self, example):
+    def preprocess_for_llama_chat(self, example, sys_max_len=150, conv_max_len=350, inference=False):
 
         assert self.tokenizer.add_bos_token and self.tokenizer.add_eos_token
 
@@ -124,8 +124,12 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
             add_special_tokens=True,
         )["input_ids"][1:]
 
-        full_input_tokens = dialog_tokens + label_tokens
-        label_tokens = [-100] * len(dialog_tokens) + label_tokens
+        if not inference:
+            full_input_tokens = dialog_tokens + label_tokens
+            label_tokens = [-100] * len(dialog_tokens) + label_tokens
+        else:
+            full_input_tokens = dialog_tokens
+
         attention_mask = [1] * len(full_input_tokens)
 
         #todo: make sure you are adding pad token to the tokenizer
