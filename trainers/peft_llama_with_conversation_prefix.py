@@ -45,7 +45,7 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
             tokens = [pad_token_id] * (max_length - len(tokens)) + tokens
         return tokens
 
-    def preprocess_for_llama_chat(self, example, sys_max_len=150, conv_max_len=350, inference=False):
+    def preprocess_for_llama_chat(self, example, inference=False):
 
         assert self.tokenizer.add_bos_token and self.tokenizer.add_eos_token
 
