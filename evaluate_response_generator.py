@@ -374,18 +374,32 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
             attention_mask=attention_mask,
             conversation_history_encodings=conversation_history_encodings,
             conversation_history_mask=conversation_history_mask,
-            max_new_tokens=64,
-            num_beams=3,
-            repetition_penalty=1.1,
+            max_new_tokens=100,
+            tempreture=0.8,
+            repeat_penalty=1.1,
+            top_p=0.95,
+            top_k=40,
         )
+
+
+        inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
 
         response = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
         labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
         references = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-        responses.extend(response)
-        targets.extend(references)
+        for inp, resp, ref in zip(inputs, response, references):
+            resp = resp.split(inp)[-1]
+            print("*"*100)
+            print("response: ", resp)
+            print("reference: ", ref)
+            print("*"*100)
+            responses.append(resp)
+            targets.append(ref)
+
+        # responses.extend(response)
+        # targets.extend(references)
 
 
     b2, b3, b4 = calculate_belu(responses, targets)

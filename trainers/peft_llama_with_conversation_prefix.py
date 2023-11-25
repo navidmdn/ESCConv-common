@@ -158,7 +158,7 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
             'conversation_history_mask': torch.tensor(history_mask)
         }
 
-    def preprocess_for_llama_chat_with_strict_components(self, example, sys_msg_max_len=150, conv_max_len=350,
+    def preprocess_for_llama_chat_with_strict_components(self, example, sys_msg_max_len=150, conv_max_len=250,
                                                          inference=False):
 
         assert self.tokenizer.add_bos_token and self.tokenizer.add_eos_token
@@ -482,6 +482,7 @@ def main():
         save_steps=script_args.save_steps,
         save_safetensors=False,
         evaluation_strategy="steps",
+        load_best_model_at_end=True,
         fp16=script_args.fp16,
         eval_steps=script_args.eval_steps,
         save_total_limit=script_args.save_total_limit,

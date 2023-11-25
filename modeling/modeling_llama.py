@@ -966,10 +966,15 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
         self.hidden_size = base_model.config.hidden_size
         self.main_input_name = "input_ids"
         self.device = base_model.device
-        self.prefix_projection_l1 = nn.Linear(self.conv_hidden_size, self.hidden_size, bias=False)
-        self.prefix_projection_l2 = nn.Linear(self.hidden_size, self.prefix_fanout*self.hidden_size, bias=False)
+        middle_size = 4 * self.hidden_size
+
+        self.prefix_projection_l1 = nn.Linear(self.conv_hidden_size, middle_size, bias=False)
+        self.prefix_projection_l2 = nn.Linear(middle_size, self.prefix_fanout*self.hidden_size, bias=False)
+        self.lnorm = nn.LayerNorm(self.prefix_fanout*self.hidden_size, eps=1e-12)
+
         self.config = self.base_model.config
         self.generation_config = GenerationConfig.from_model_config(self.config) if self.can_generate() else None
+
     def get_input_embeddings(self):
         return self.base_model.get_input_embeddings()
 
@@ -1029,6 +1034,8 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
             prefix_encodings = self.prefix_projection_l1(conversation_history_encodings.view(-1, self.conv_hidden_size)) # (batch_size x history_len * conv_hidden_size)
             prefix_encodings = torch.relu(prefix_encodings)
             prefix_encodings = self.prefix_projection_l2(prefix_encodings) # (batch_size x history_len * hidden_size)
+            prefix_encodings = self.lnorm(prefix_encodings)
+
             prefix_encodings = prefix_encodings.view(batch_size, history_len, self.hidden_size)
 
             prefix_encodings = prefix_encodings.to(input_embs.dtype)

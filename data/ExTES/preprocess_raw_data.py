@@ -7,6 +7,13 @@ from tqdm import tqdm
 
 nlp = spacy.load("en_core_web_md")
 
+RANDOM_SEED = 42
+ENCODE_UTT = True
+
+if ENCODE_UTT:
+    from sentence_transformers import SentenceTransformer
+    utt_encoder = SentenceTransformer('all-mpnet-base-v2')
+
 
 VALID_STRATEGIES = [
     "Reflective Statements",
@@ -29,7 +36,10 @@ VALID_STRATEGIES = [
 VALID_STRATEGIES = [s.lower() for s in VALID_STRATEGIES]
 strategy_embs = [nlp(s) for s in VALID_STRATEGIES]
 
-RANDOM_SEED = 42
+
+def encode_utterances(utterances: List[str]) -> List[List[float]]:
+    assert ENCODE_UTT is True, "encode_utterances should only be called when ENCODE_UTT is True"
+    return utt_encoder.encode(utterances, normalize_embeddings=True).tolist()
 
 
 def find_strategy(strategy: str, valid_strategies: List[str], strategy_embs) -> str:
@@ -84,6 +94,9 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
             user_utt = turn_obj["User"]
             ai_utt = turn_obj["AI"]
 
+            if user_utt is None or ai_utt is None:
+                return []
+
             ai_strategy = ""
             if "AI Strategy" in turn_obj:
                 ai_strategy = turn_obj["AI Strategy"]
@@ -122,7 +135,8 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
                 return []
 
             content = turn_obj["AI" if speaker == 'supporter' else "User"]
-
+            if content is None:
+                return []
             # seeker always gets empty strategy
             # since empty strategies are deceiving and can belong to any category we just add empty strategy
             # instead of Others for supporter
@@ -182,6 +196,9 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 
     turn = 0
     assert len(all_turns) == len(all_speakers) == len(all_strategies)
+
+    encoded_utterances = encode_utterances(all_turns) if ENCODE_UTT else []
+
     for i, (turn_content, speaker, strategies) in enumerate(zip(all_turns, all_speakers, all_strategies)):
         # don't count as a turn if supporter starts the conversation
 
@@ -202,6 +219,7 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
                 'dialog_history': conv_so_far.copy(),
                 'prev_speakers': speakers_so_far.copy(),
                 'prev_strategies': strategies_so_far.copy(),
+                'encoded_history': encoded_utterances[:i],
                 'strategy': strategies,
                 'response': turn_content,
                 'turn': turn,
@@ -217,7 +235,7 @@ def decompose_conversation(conversation: Dict, starting_turn: int, turn_by_turn=
 def preprocess(
         data_path: str = "ExTES.json",
         output_dir: str = ".",
-        starting_turn: int = 3,
+        starting_turn: int = 1,
 
 ):
     with open(data_path, 'r') as f:
