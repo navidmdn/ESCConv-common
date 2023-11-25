@@ -121,8 +121,8 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
         label_tokens = self.tokenizer(
             f"{(response['content']).strip()}",
             #todo: check if eos added but not bos
-            add_special_tokens=True,
-        )["input_ids"][1:]
+            add_special_tokens=False,
+        )["input_ids"] + [self.tokenizer.eos_token_id]
 
         if not inference:
             full_input_tokens = dialog_tokens + label_tokens
@@ -154,6 +154,138 @@ class LLamaPreprocessingForCLMWithConversationPrefix:
             'attention_mask': torch.tensor(attention_mask),
             'labels': torch.tensor(label_tokens),
             'prompt_ids': torch.tensor(dialog_tokens),
+            'conversation_history_encodings': history_encodings,
+            'conversation_history_mask': torch.tensor(history_mask)
+        }
+
+    def preprocess_for_llama_chat_with_strict_components(self, example, sys_msg_max_len=150, conv_max_len=350,
+                                                         inference=False):
+
+        assert self.tokenizer.add_bos_token and self.tokenizer.add_eos_token
+
+        history = example['dialog_history']
+        speakers = example['prev_speakers']
+        dialog: List[Message] = []
+        cur_strategies = example['strategy'][-1]
+        strategy_description = ""
+        if cur_strategies in strategy_descriptions:
+            strategy_description = f"({strategy_descriptions[cur_strategies]})"
+        response = Message(role="assistant", content=example['response'])
+
+        system_msg = f"""You are a helpful emotional support expert.\
+ continue the conversation for one turn using "{cur_strategies}"{strategy_description} strategy.\
+ The user has come to you with the following situation: "{example['situation']}". """
+
+        # model only supports starting with user
+        if speakers[0] == 'supporter':
+            speakers = speakers[1:]
+            history = history[1:]
+
+        dialog.append(Message(role="system", content=system_msg))
+        for speaker, utt in zip(speakers, history):
+            if speaker == 'supporter':
+                dialog.append(Message(role="assistant", content=utt))
+            elif speaker == 'seeker':
+                dialog.append(Message(role="user", content=utt))
+            else:
+                raise Exception("speaker should be either 'supporter' or 'seeker'")
+
+        assert (
+                dialog[-1]["role"] == "user"
+        ), f"Last message must be from user, got {dialog[-1]['role']}"
+
+        dialog_tokens: List[int] = []
+
+        # we don't add E_SYS cause we don't want to truncate it
+        full_sys_msg = f"{B_INST} {B_SYS} {system_msg.strip()} "
+        sys_tokens = self.tokenizer(full_sys_msg, add_special_tokens=True)["input_ids"][:-1]
+        esys_tokens = self.tokenizer(E_SYS, add_special_tokens=False)["input_ids"]
+        esys_tokens_len = len(esys_tokens)
+
+        if len(sys_tokens) + esys_tokens_len > sys_msg_max_len:
+            sys_tokens = sys_tokens[:sys_msg_max_len-esys_tokens_len] + esys_tokens
+        else:
+            sys_tokens += esys_tokens
+
+        assert len(sys_tokens) <= sys_msg_max_len, f"sys_tokens len {len(sys_tokens)} > {sys_msg_max_len}"
+
+        usr_msg = f"{dialog[1]['content'].strip()} {E_INST} "
+        usr_tokens = self.tokenizer(usr_msg, add_special_tokens=False)["input_ids"]
+
+        if len(dialog) > 2:
+            ai_msg = f"{dialog[2]['content'].strip()}"
+            ai_tokens = self.tokenizer(ai_msg, add_special_tokens=False)["input_ids"] + [self.tokenizer.eos_token_id]
+            usr_tokens = usr_tokens + ai_tokens
+
+        dialog_tokens.extend(usr_tokens)
+
+        for prompt, answer in zip(dialog[3::2], dialog[4::2]):
+            tokens = self.tokenizer(
+                f"{B_INST} {(prompt['content']).strip()} {E_INST} {(answer['content']).strip()} ",
+                # todo: check if bos and eos are added both
+                add_special_tokens=True,
+            )["input_ids"]
+            dialog_tokens.extend(tokens)
+
+        # add last prompt
+        dialog_tokens += self.tokenizer(
+            f"{B_INST} {(dialog[-1]['content']).strip()} {E_INST} ",
+            add_special_tokens=True,
+        )["input_ids"][:-1]
+
+        label_tokens = self.tokenizer(
+            f"{(response['content']).strip()}",
+            add_special_tokens=False,
+        )["input_ids"] + [self.tokenizer.eos_token_id]
+
+        if not inference:
+
+            conv_tokens = dialog_tokens + label_tokens
+            conv_tokens = conv_tokens[-conv_max_len:]
+
+            full_input_tokens = sys_tokens + conv_tokens
+
+            # in this case all of the conv_tokens are labels
+            if len(label_tokens) > conv_max_len:
+                print("WARNING: len(label_tokens) > conv_max_len!")
+                label_tokens = label_tokens[-conv_max_len:]
+
+            prompt_tokens = full_input_tokens[:-len(label_tokens)]
+            label_tokens = [-100] * (len(full_input_tokens) - len(label_tokens)) + label_tokens
+
+        else:
+            full_input_tokens = sys_tokens + dialog_tokens[-conv_max_len:]
+            prompt_tokens = full_input_tokens
+
+
+        max_length = sys_msg_max_len + conv_max_len
+        assert self.max_length == max_length, "max_length should be equal to sys_msg_max_len + conv_max_len"
+        assert len(full_input_tokens) <= max_length
+
+        attention_mask = [1] * len(full_input_tokens)
+
+        # todo: make sure you are adding pad token to the tokenizer
+        full_input_tokens = self.truncate_or_pad(full_input_tokens, self.max_length, self.tokenizer.pad_token_id)
+        label_tokens = self.truncate_or_pad(label_tokens, self.max_length, -100)
+        attention_mask = self.truncate_or_pad(attention_mask, self.max_length, 0)
+
+        history_encodings = torch.tensor(example['encoded_history'])  # k x history_emb_dim
+        history_mask = [1] * history_encodings.shape[0]
+        history_mask = self.truncate_or_pad(history_mask, self.max_history_length, 0)
+
+        if history_encodings.shape[0] < self.max_history_length:
+            history_encodings_padding = torch.zeros((self.max_history_length - history_encodings.shape[0],
+                                                     history_encodings.shape[1]))
+            history_encodings = torch.concat([history_encodings_padding, history_encodings], dim=0)
+        else:
+            print(f"truncating conversation history > {self.max_history_length}")
+            history_encodings = history_encodings[-self.max_history_length:]
+
+        return {
+            'input_ids': torch.tensor(full_input_tokens),
+            'attention_mask': torch.tensor(attention_mask),
+            'labels': torch.tensor(label_tokens),
+            'prompt_ids': torch.tensor(prompt_tokens),
             'conversation_history_encodings': history_encodings,
             'conversation_history_mask': torch.tensor(history_mask)
         }
@@ -301,8 +433,8 @@ def main():
     columns = raw_datasets["train"].column_names
 
     # todo: just for test
-    # raw_datasets['train'] = raw_datasets['train'].select(range(100))
-    # raw_datasets['validation'] = raw_datasets['validation'].select(range(100))
+    # raw_datasets['train'] = raw_datasets['train'].select(range(1000))
+    # raw_datasets['validation'] = raw_datasets['validation'].select(range(1000))
 
     if tokenizer.pad_token is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
@@ -312,7 +444,7 @@ def main():
         raise Exception("The vocab size shouldn't have changed!")
 
     data_processor = LLamaPreprocessingForCLMWithConversationPrefix(tokenizer, script_args.seq_length)
-    raw_datasets = raw_datasets.map(data_processor.preprocess_for_llama_chat,
+    raw_datasets = raw_datasets.map(data_processor.preprocess_for_llama_chat_with_strict_components,
                                     load_from_cache_file=True, num_proc=4, remove_columns=columns)
 
     train_dataset = raw_datasets["train"]
