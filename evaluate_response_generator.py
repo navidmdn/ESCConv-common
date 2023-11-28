@@ -7,6 +7,7 @@ from original_data.data_handler import get_strategy, load_json
 from nltk.translate.bleu_score import sentence_bleu
 from tqdm import tqdm
 import re
+import numpy as np
 import evaluate as evallib
 import torch
 import nltk
@@ -338,6 +339,8 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
     assert len(unexpected_keys) == 0
     assert "prefix_projection_l1.weight" not in missing_keys
     assert "prefix_projection_l2.weight" not in missing_keys
+    assert "lnorm.weight" not in missing_keys
+    assert "lnorm.bias" not in missing_keys
 
     model = model.to(device)
 
@@ -356,7 +359,7 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
     data_collator = data_processor.collate_batch
 
     test_dataset = test_dataset.map(preprocessor_func, num_proc=4, remove_columns=test_dataset.column_names,
-                                    fn_kwargs={"inference": True})
+                                    fn_kwargs={"inference": False})
     dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
     print(test_dataset[0]['labels'])
     responses = []
@@ -375,15 +378,129 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
             conversation_history_encodings=conversation_history_encodings,
             conversation_history_mask=conversation_history_mask,
             max_new_tokens=100,
-            tempreture=0.8,
-            repeat_penalty=1.1,
+            temperature=0.8,
+            repetition_penalty=1.1,
+            top_p=0.95,
+            top_k=40,
+            do_sample=True,
+        )
+
+        inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
+        response = tokenizer.batch_decode(outputs, skip_special_tokens=True)
+
+        labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
+        references = tokenizer.batch_decode(labels, skip_special_tokens=True)
+
+        for inp, resp, ref in zip(inputs, response, references):
+            # resp = resp.split(inp)[-1]
+            print("*"*100)
+            print("input: ", inp)
+            print("response: ", resp)
+            print("reference: ", ref)
+            print("*"*100)
+            responses.append(resp)
+            targets.append(ref)
+
+        # responses.extend(response)
+        # targets.extend(references)
+
+
+    b2, b3, b4 = calculate_belu(responses, targets)
+    rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)
+
+    df_metrics = {
+        'B2': b2,
+        'B3': b3,
+        'B4': b4,
+        'Rouge1': rouge1,
+        'Rouge2': rouge2,
+        'RougeL': rougeL,
+        'RougeLsum': rougeLsum,
+        'response': responses,
+        'target': targets,
+    }
+
+    df = pd.DataFrame(df_metrics)
+    df.to_csv(f'{experiment_name}.csv', index=False, header=True)
+
+
+def evaluate_clm_response_generator(model_name_or_path, test_data_path, cache_dir=None,
+                                                batch_size=16, sample_size=None, experiment_name='clm_evaluation',
+                                                seq_length=400, load_in_8bit=False, load_in_4bit=False):
+
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=cache_dir)
+    tokenizer.truncation_side = 'left'
+
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    if load_in_8bit and load_in_4bit:
+        raise ValueError("You can't load the model in 8 bits and 4 bits at the same time")
+    elif load_in_8bit or load_in_4bit:
+        quantization_config = BitsAndBytesConfig(
+            load_in_8bit=load_in_8bit, load_in_4bit=load_in_4bit
+        )
+        # Copy the model to each device
+        device_map = (
+            {"": Accelerator().local_process_index}
+        )
+        torch_dtype = torch.bfloat16
+    else:
+        device_map = None
+        quantization_config = None
+        torch_dtype = None
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name_or_path,
+        quantization_config=quantization_config,
+        device_map=device_map,
+        cache_dir=cache_dir,
+        torch_dtype=torch_dtype,
+    )
+
+    if not load_in_8bit and not load_in_4bit:
+        model = model.to(device)
+
+    test_dataset = load_dataset(
+        'json',
+        data_files={'test': test_data_path},
+        cache_dir=cache_dir,
+        # for testing
+    )['test']
+
+    if sample_size is not None:
+        test_dataset = test_dataset.shuffle(seed=42).select(range(sample_size))
+
+    data_processor = LLamaPreprocessingForCLMWithConversationPrefix(tokenizer, seq_length)
+    preprocessor_func = data_processor.preprocess_for_llama_chat_with_strict_components
+    data_collator = data_processor.collate_batch
+
+    test_dataset = test_dataset.map(preprocessor_func, num_proc=1, remove_columns=test_dataset.column_names,
+                                    fn_kwargs={"inference": True})
+    dataloader = DataLoader(test_dataset, batch_size=batch_size, collate_fn=data_collator, shuffle=False)
+    print(test_dataset[0]['labels'])
+    responses = []
+    targets = []
+
+    for i, batch in tqdm(enumerate(dataloader), total=len(test_dataset) // batch_size):
+        input_ids = batch['input_ids'].to(device)
+        labels = batch['labels'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+
+        outputs = model.generate(
+            input_ids,
+            attention_mask=attention_mask,
+            max_new_tokens=100,
+            temperature=0.8,
+            repetition_penalty=1.1,
             top_p=0.95,
             top_k=40,
         )
 
 
         inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
-
         response = tokenizer.batch_decode(outputs, skip_special_tokens=True)
 
         labels = torch.where(labels == -100, tokenizer.pad_token_id, labels)
@@ -400,7 +517,6 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
 
         # responses.extend(response)
         # targets.extend(references)
-
 
     b2, b3, b4 = calculate_belu(responses, targets)
     rouge1, rouge2, rougeL, rougeLsum = calculate_rouge(responses, targets)
@@ -448,6 +564,10 @@ def evaluate(
                                                     experiment_name=experiment_name, batch_size=batch_size,
                                                     sample_size=sample_size, prefix_fanout=prefix_fanout,
                                                     load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit)
+    elif model_type == 'clm':
+        evaluate_clm_response_generator(model_path, test_data_path, cache_dir=cache_dir,
+                                        experiment_name=experiment_name, batch_size=batch_size,
+                                        sample_size=sample_size, load_in_4bit=load_in_4bit, load_in_8bit=load_in_8bit)
     else:
         raise NotImplementedError
 

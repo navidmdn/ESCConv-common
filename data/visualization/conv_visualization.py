@@ -9,16 +9,16 @@ app = Flask(__name__)
 # data_path = '../../original_data/train_ann_extes.json'
 
 # ExTES data path
-data_path = '../../original_data/test.json'
-#model_response_path = None # If you want to visualize model responses, set this to the path of the model response file
+data_path = '../../data/ExTES/test.json'
+model_response_path = None # If you want to visualize model responses, set this to the path of the model response file
 
-model_response_path = '../../outputs.json'
-gens = []
-if model_response_path is not None:
-    with open(model_response_path, 'r') as f:
-        for line in f:
-            obj = json.loads(line)
-            gens.append(obj['response'])
+# model_response_path = '../../outputs.json'
+# gens = []
+# if model_response_path is not None:
+#     with open(model_response_path, 'r') as f:
+#         for line in f:
+#             obj = json.loads(line)
+#             gens.append(obj['response'])
 
 
 # Sample dataset of conversations

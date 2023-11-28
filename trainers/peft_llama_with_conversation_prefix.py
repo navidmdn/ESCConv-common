@@ -432,10 +432,6 @@ def main():
     )
     columns = raw_datasets["train"].column_names
 
-    # todo: just for test
-    # raw_datasets['train'] = raw_datasets['train'].select(range(1000))
-    # raw_datasets['validation'] = raw_datasets['validation'].select(range(1000))
-
     if tokenizer.pad_token is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
@@ -450,8 +446,12 @@ def main():
     train_dataset = raw_datasets["train"]
     valid_dataset = raw_datasets["validation"]
 
+    #todo: for testing
+    # train_dataset = train_dataset.select(range(100))
+    # valid_dataset = valid_dataset.select(range(100))
+
     print("A sample of train dataset: ")
-    idx = random.randint(0, len(train_dataset))
+    idx = random.randint(0, len(train_dataset)-1)
     input_ids = train_dataset[idx]['input_ids']
     label_ids = train_dataset[idx]['labels']
     attention_mask = train_dataset[idx]['attention_mask']

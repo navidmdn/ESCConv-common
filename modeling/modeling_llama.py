@@ -1027,6 +1027,7 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
         batch_size = input_ids.size(0)
         input_embs = self.base_model.model.embed_tokens(input_ids)  # (batch_size, max_len, hidden_size)
         history_len = None
+        prefix_encodings = None
 
         if conversation_history_encodings is not None:
             history_len = conversation_history_encodings.size(1) * self.prefix_fanout
@@ -1053,8 +1054,14 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
             full_attention_mask = attention_mask
 
         if labels is not None:
-            prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
+            conversation_history_logits = self.base_model.get_output_embeddings()(prefix_encodings)
+            conversation_history_labels = torch.argmax(conversation_history_logits, dim=-1)
+            conversation_history_mask = conversation_history_mask.to(labels.device)
+            conversation_history_labels = conversation_history_labels.to(labels.device)
+            prefix_labels = torch.where(conversation_history_mask == 0, -100, conversation_history_labels)
+            # prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
             labels = torch.cat((prefix_labels, labels), dim=1)
+
 
         # print("****************")
         # print("input_ids", input_ids.device, input_ids.dtype, input_ids.shape)
