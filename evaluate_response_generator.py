@@ -377,12 +377,8 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
             attention_mask=attention_mask,
             conversation_history_encodings=conversation_history_encodings,
             conversation_history_mask=conversation_history_mask,
-            max_new_tokens=100,
-            temperature=0.8,
-            repetition_penalty=1.1,
-            top_p=0.95,
-            top_k=40,
-            do_sample=True,
+            max_new_tokens=200,
+            do_sample=False,
         )
 
         inputs = tokenizer.batch_decode(input_ids, skip_special_tokens=True)
@@ -392,9 +388,9 @@ def evaluate_conv_prefix_clm_response_generator(model_path, test_data_path, base
         references = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
         for inp, resp, ref in zip(inputs, response, references):
-            # resp = resp.split(inp)[-1]
+            resp = resp.split(inp)[-1]
             print("*"*100)
-            print("input: ", inp)
+            # print("input: ", inp)
             print("response: ", resp)
             print("reference: ", ref)
             print("*"*100)
@@ -492,7 +488,7 @@ def evaluate_clm_response_generator(model_name_or_path, test_data_path, cache_di
         outputs = model.generate(
             input_ids,
             attention_mask=attention_mask,
-            max_new_tokens=100,
+            max_new_tokens=250,
             temperature=0.8,
             repetition_penalty=1.1,
             top_p=0.95,

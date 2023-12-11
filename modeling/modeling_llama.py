@@ -966,7 +966,7 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
         self.hidden_size = base_model.config.hidden_size
         self.main_input_name = "input_ids"
         self.device = base_model.device
-        middle_size = 4 * self.hidden_size
+        middle_size = self.hidden_size
 
         self.prefix_projection_l1 = nn.Linear(self.conv_hidden_size, middle_size, bias=False)
         self.prefix_projection_l2 = nn.Linear(middle_size, self.prefix_fanout*self.hidden_size, bias=False)
@@ -1054,12 +1054,12 @@ class LlamaForCausalLMWithConditionalPrompt(torch.nn.Module, GenerationMixin):
             full_attention_mask = attention_mask
 
         if labels is not None:
-            conversation_history_logits = self.base_model.get_output_embeddings()(prefix_encodings)
-            conversation_history_labels = torch.argmax(conversation_history_logits, dim=-1)
-            conversation_history_mask = conversation_history_mask.to(labels.device)
-            conversation_history_labels = conversation_history_labels.to(labels.device)
-            prefix_labels = torch.where(conversation_history_mask == 0, -100, conversation_history_labels)
-            # prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
+            # conversation_history_logits = self.base_model.get_output_embeddings()(prefix_encodings)
+            # conversation_history_labels = torch.argmax(conversation_history_logits, dim=-1)
+            # conversation_history_mask = conversation_history_mask.to(labels.device)
+            # conversation_history_labels = conversation_history_labels.to(labels.device)
+            # prefix_labels = torch.where(conversation_history_mask == 0, -100, conversation_history_labels)
+            prefix_labels = torch.full((batch_size, history_len), -100).to(labels.device)
             labels = torch.cat((prefix_labels, labels), dim=1)
 
 

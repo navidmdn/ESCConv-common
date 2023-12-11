@@ -1,5 +1,6 @@
 import json
 
+import pandas as pd
 from flask import Flask, render_template, request, redirect, url_for
 import random
 import json
@@ -9,16 +10,24 @@ app = Flask(__name__)
 # data_path = '../../original_data/train_ann_extes.json'
 
 # ExTES data path
-data_path = '../../data/ExTES/test.json'
-model_response_path = None # If you want to visualize model responses, set this to the path of the model response file
+data_path = '../../original_data/test.json'
+# model_response_path = None # If you want to visualize model responses, set this to the path of the model response file
 
-# model_response_path = '../../outputs.json'
-# gens = []
-# if model_response_path is not None:
-#     with open(model_response_path, 'r') as f:
-#         for line in f:
-#             obj = json.loads(line)
-#             gens.append(obj['response'])
+model_response_path = '../../results/llama2chat.csv'
+# model_response_path = '../../results/conv_prefix_clm.csv'
+
+gens = []
+if model_response_path is not None:
+    if model_response_path.endswith('.csv'):
+        df = pd.read_csv(model_response_path)
+        gens = df['response'].tolist()
+    elif model_response_path.endswith('.json'):
+        with open(model_response_path, 'r') as f:
+            for line in f:
+                obj = json.loads(line)
+                gens.append(obj['response'])
+    else:
+        raise ValueError('model_response_path must be either .csv or .json')
 
 
 # Sample dataset of conversations
