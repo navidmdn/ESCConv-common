@@ -8,6 +8,7 @@ import torch
 import os
 from tqdm import tqdm
 from accelerate import Accelerator
+import random
 
 
 def load_jsonl(path):
@@ -95,7 +96,7 @@ def get_model_and_tokenizer(model_name, cache_dir, load_in_4bit=True):
     return model, tokenizer
 
 
-def get_continuation_prompt(conversation, model, tokenizer, batch_size=2):
+def get_continuation_prompt(conversation, model, tokenizer):
     dialog = conversation['dialog_history']
     speakers = conversation['prev_speakers']
     situation = conversation['situation']
@@ -113,6 +114,8 @@ def get_continuation_prompt(conversation, model, tokenizer, batch_size=2):
     responses = {}
 
     for strategy, desc in tqdm(modified_extes_support_strategies.items()):
+        if random.random() > 0.3:
+            continue
         sys_msg = template.format(situation=situation, cur_strategy=strategy, strategy_description=desc)
         prompt = convert_to_llama2_chat_format(sys_msg, dialog)
 
@@ -143,10 +146,15 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
 
     os.makedirs(output_path, exist_ok=True)
 
-    for i, conversation in tqdm(enumerate(data)):
+    for i, _ in enumerate(data):
+        rand_id = random.randint(0, len(data))
+        if os.path.exists(os.path.join(output_path, f'{rand_id}.json')):
+            continue
+
+        conversation = data[rand_id]
         generated_conts = get_continuation_prompt(conversation, model, tokenizer)
 
-        with open(os.path.join(output_path, f'{i}.json'), 'w') as f:
+        with open(os.path.join(output_path, f'{rand_id}.json'), 'w') as f:
             json.dump(generated_conts.to_dict(), f)
 
 
