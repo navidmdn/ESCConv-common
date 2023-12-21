@@ -1,4 +1,4 @@
-from trainers.llama_prompt import *
+from prompting.llama_prompt import *
 from dataclasses import dataclass, field
 from typing import Optional
 import random
@@ -7,12 +7,12 @@ import torch
 from accelerate import Accelerator
 from datasets import load_dataset
 from peft import LoraConfig, TaskType
-from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, \
+from transformers import AutoTokenizer, BitsAndBytesConfig, \
     HfArgumentParser, TrainingArguments, AutoConfig
 from transformers import Trainer
 from peft import get_peft_model
 from modeling.modeling_llama import LlamaForCausalLMWithConditionalPrompt
-from transformers import LlamaConfig, LlamaTokenizer, LlamaForCausalLM
+from transformers import LlamaForCausalLM
 
 
 def print_trainable_parameters(model):
