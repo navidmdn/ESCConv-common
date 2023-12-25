@@ -11,12 +11,12 @@ from accelerate import Accelerator
 import random
 
 template1 = """You are a helpful, precise and accurate emotional support expert.\
-The user has come to you with the following situation: "{situation}". continue the\
-conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point."""
+ The user has come to you with the following situation: "{situation}". continue the\
+ conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point."""
 
 template2 = """You are a helpful and caring friend.\
-Your best friend has come to you with the following situation: "{situation}". continue the\
-conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point.\
+ Your best friend has come to you with the following situation: "{situation}". continue the\
+ conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point.\
  Do not provide additional info. only respond in one paragraph that satisfies {cur_strategy} strategy."""
 
 
