@@ -198,7 +198,8 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
         #                          num_return_sequences=1, do_sample=True, top_p=0.95, top_k=50, temperature=0.8,
         #                          repetition_penalty=1.1, length_penalty=1.2, return_dict_in_generate=True)
 
-        outputs = model.generate(input_ids, output_attentions=get_attentions, max_new_tokens=max_new_tokens,
+        outputs = model.generate(input_ids, do_sample=False,
+                                 output_attentions=get_attentions, max_new_tokens=max_new_tokens,
                                  return_dict_in_generate=True)
 
         prompts[strategy] = prompt
