@@ -13,6 +13,9 @@ import pickle
 import time
 from prompting.analyze_attention_weights import default_aggregate_attention
 
+
+random.seed(11335577)
+
 template1 = """You are a helpful, precise and accurate emotional support expert.\
  The user has come to you with the following situation: "{situation}". continue the\
  conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point."""
@@ -162,7 +165,7 @@ def get_model_and_tokenizer(model_name, cache_dir, load_in_4bit=True):
 
 
 def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', get_attentions=False,
-                            max_new_tokens=512):
+                            max_new_tokens=512, prompt_constructor=convert_to_llama2_chat_format, sample_prob=0.3):
     dialog = conversation['dialog_history']
     speakers = conversation['prev_speakers']
     situation = conversation['situation']
@@ -178,12 +181,12 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
     attentions = {}
 
     for strategy, desc in tqdm(modified_extes_support_strategies.items()):
-        if random.random() > 0.3:
+        if random.random() > sample_prob:
             continue
         sys_msg = template2.format(situation=situation, cur_strategy=strategy, strategy_description=desc)
 
         if model_type == 'llama' or model_type == 'mistral':
-            prompt = convert_to_llama2_chat_partial_conv_format(sys_msg, dialog, tokenizer)
+            prompt = prompt_constructor(sys_msg, dialog, tokenizer)
             input_ids = tokenizer(prompt, return_tensors='pt', add_special_tokens=False)['input_ids'].to(model.device)
             print("length of input_ids: ", len(input_ids[0]))
             print("prompt: ", prompt)
@@ -223,12 +226,22 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
 
 
 def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_path='nickypro/tinyllama-15M',
-        cache_dir=None, output_path='./outputs', load_in_4bit=True, get_attentions=False, max_new_tokens=512):
+        cache_dir=None, output_path='./outputs', load_in_4bit=True, get_attentions=False, max_new_tokens=512,
+        prompt_constructor='partial'):
     data = load_jsonl(data_path)
     data = [d for d in data if min_turn <= d['turn'] <= max_turn]
     model, tokenizer = get_model_and_tokenizer(model_path, cache_dir, load_in_4bit)
     tokenizer.padding_side = 'left'
     tokenizer.pad_token = tokenizer.eos_token
+
+    if prompt_constructor == 'partial':
+        prompt_constructor_func = convert_to_llama2_chat_partial_conv_format
+    elif prompt_constructor == 'full':
+        prompt_constructor_func = convert_to_llama2_chat_format
+    else:
+        raise ValueError(f"prompt_constructor should be one of ['partial', 'full'], but got {prompt_constructor}")
+
+    print(f"using prompt constructor: {prompt_constructor}")
 
     os.makedirs(output_path, exist_ok=True)
 
@@ -239,7 +252,7 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
 
         conversation = data[rand_id]
         generated_conts = get_continuation_prompt(conversation, model, tokenizer, get_attentions=get_attentions,
-                                                  max_new_tokens=max_new_tokens)
+                                                  max_new_tokens=max_new_tokens, prompt_constructor=prompt_constructor_func)
 
         with open(os.path.join(output_path, f'{rand_id}.json'), 'w') as f:
             json.dump(generated_conts.to_dict(), f)
