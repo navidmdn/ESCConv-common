@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 
 RANDOM_SEED = 42
-ENCODE_UTT = True
+ENCODE_UTT = False
 
 if ENCODE_UTT:
     from sentence_transformers import SentenceTransformer

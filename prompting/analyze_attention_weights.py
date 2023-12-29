@@ -1,14 +1,17 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-
-
-def aggregate_attention(attn):
-    # todo: experiment with different aggregation strategies
+from typing import List
+from transformers import LlamaForCausalLM
+def default_aggregate_attention(attn):
     '''Extract average attention vector'''
     avged = []
     for layer in attn:
-        layer_attns = layer.squeeze(0)
+        layer_attns = layer.cpu().squeeze(0)
         attns_per_head = layer_attns.mean(dim=0)
+
+        # in case the generation is produced by beam search, also average over beams
+        if len(attns_per_head.shape) == 3:
+            attns_per_head = attns_per_head.mean(dim=0)
+
         vec = torch.concat((
             # We zero the first entry because it's what's called
             # null attention (https://aclanthology.org/W19-4808.pdf)
@@ -16,7 +19,6 @@ def aggregate_attention(attn):
             # usually there's only one item in attns_per_head but
             # on the first generation, there's a row for each token
             # in the prompt as well, so take [-1]
-            # todo: shouldn't we take current token's row instead?
             attns_per_head[-1][1:],
             # add zero for the final generated token, which never
             # gets any attention
@@ -35,22 +37,36 @@ def heterogenous_stack(vecs):
     ])
 
 
-def decode(tokens):
+def get_tokens_str_list(tokenizer, tokens) -> List[str]:
     '''Turn tokens into text with mapping index'''
-    full_text = ''
-    chunks = []
-    for i, token in enumerate(tokens):
-        text = tokenizer.decode(token)
-        full_text += text
-        chunks.append(text)
-    return full_text, chunks
+    chunks = tokenizer.convert_ids_to_tokens(tokens)
+
+    new_tokens = []
+    for token in chunks:
+        # 9601 is the special token for split tokens in llama
+        if token == '<0x0A>':
+            new_tokens.append('\n')
+        elif token.startswith(chr(9601)):
+            new_tokens.append(f" {token[1:]}")
+        else:
+            new_tokens.append(token)
+    return new_tokens
 
 
-def get_completion(prompt):
+def build_attention_matrix(attentions, tokens, aggregate_fn=default_aggregate_attention):
+    attn_m = heterogenous_stack([
+        torch.tensor([
+            1 if i == j else 0
+            for j, token in enumerate(tokens)
+        ], device=tokens.device)
+        for i, token in enumerate(tokens)
+    ] + list(map(aggregate_fn, attentions)))
+    return attn_m
+
+
+def get_completion(prompt, tokenizer, model):
     '''Get full text, token mapping, and attention matrix for a completion'''
-    # tokens = tokenizer.encode(prompt, return_tensors="pt")
     tokens = tokenizer(prompt, return_tensors='pt', add_special_tokens=False)['input_ids'].to(model.device)
-
     outputs = model.generate(
         tokens,
         max_new_tokens=50,
@@ -59,44 +75,21 @@ def get_completion(prompt):
         early_stopping=True,
         length_penalty=-1
     )
+
     sequences = outputs.sequences
-    attn_m = heterogenous_stack([
-                                    torch.tensor([
-                                        1 if i == j else 0
-                                        for j, token in enumerate(tokens[0])
-                                    ])
-                                    for i, token in enumerate(tokens[0])
-                                ] + list(map(aggregate_attention, outputs.attentions)))
-    decoded, tokenized = decode(sequences[0])
+    tokenized = get_tokens_str_list(tokenizer, sequences[0])
+    decoded = tokenizer.decode(sequences[0], skip_special_tokens=False)
+
+    attn_m = build_attention_matrix(outputs.attentions, tokens[0].detach().cpu())
+    assert len(tokenized) == len(attn_m)
     return decoded, tokenized, attn_m
 
 
-def show_matrix(xs, tokens):
+def show_matrix(xs):
     for x in xs:
         line = ''
         for y in x:
             line += '{:.4f}\t'.format(float(y))
         print(line)
-    tokens_line = ''
-    for token in tokens:
-        token = repr(token)[1:-1][:6]
-        if len(token) >= 6:
-            partial_space = ""
-        else:
-            partial_space = " " * (6 - len(token))
-        # print("token: ", token)
-        # print("len(token): ", len(token))
-        # print("partial_space: ", len(partial_space))
-        tokens_line += token + partial_space + '\t'
-    print(tokens_line)
 
 
-if __name__ == "__main__":
-    tokenizer = AutoTokenizer.from_pretrained('gpt2')
-    model = AutoModelForCausalLM.from_pretrained('gpt2')
-    config = model.config
-    print(config)
-
-    prompt = 'given the info navid is a phd student, where does navid work?'
-    decoded, tokenized, attn_m = get_completion(prompt)
-    show_matrix(attn_m, tokenized)
