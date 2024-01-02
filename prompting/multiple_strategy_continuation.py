@@ -18,7 +18,8 @@ random.seed(11335577)
 
 template1 = """You are a helpful, precise and accurate emotional support expert.\
  The user has come to you with the following situation: "{situation}". continue the\
- conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point."""
+ conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point.\
+ Do not provide additional info. only respond in one paragraph that satisfies {cur_strategy} strategy."""
 
 template2 = """You are a helpful and caring friend.\
  Your best friend has come to you with the following situation: "{situation}". continue the\
@@ -227,7 +228,7 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
 
 def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_path='nickypro/tinyllama-15M',
         cache_dir=None, output_path='./outputs', load_in_4bit=True, get_attentions=False, max_new_tokens=512,
-        prompt_constructor='partial'):
+        n_iters=1000, prompt_constructor='partial'):
     data = load_jsonl(data_path)
     data = [d for d in data if min_turn <= d['turn'] <= max_turn]
     model, tokenizer = get_model_and_tokenizer(model_path, cache_dir, load_in_4bit)
@@ -246,6 +247,9 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
     os.makedirs(output_path, exist_ok=True)
 
     for i, _ in enumerate(data):
+        if i >= n_iters:
+            break
+
         rand_id = random.randint(0, len(data))
         if os.path.exists(os.path.join(output_path, f'{rand_id}.json')):
             continue
