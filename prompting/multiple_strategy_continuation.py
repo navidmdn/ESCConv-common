@@ -250,7 +250,7 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
         if i >= n_iters:
             break
 
-        rand_id = random.randint(0, len(data))
+        rand_id = random.randint(0, len(data)-1)
         if os.path.exists(os.path.join(output_path, f'{rand_id}.json')):
             continue
 
