@@ -246,7 +246,8 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
 
     os.makedirs(output_path, exist_ok=True)
 
-    for i, _ in enumerate(data):
+    i = 0
+    while i < len(data):
         if i >= n_iters:
             break
 
@@ -264,6 +265,8 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
         if get_attentions:
             with open(os.path.join(output_path, f'{rand_id}_attentions.pkl'), 'wb') as f:
                 pickle.dump(generated_conts.attentions, f)
+
+        i += 1
 
 
 if __name__ == '__main__':

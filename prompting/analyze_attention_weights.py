@@ -1,6 +1,15 @@
 import torch
 from typing import List
-from transformers import LlamaForCausalLM, PreTrainedTokenizer
+from transformers import LlamaForCausalLM, PreTrainedTokenizer, AutoTokenizer
+from glob import glob
+from tqdm import tqdm
+import re
+from fire import Fire
+import pickle
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 def default_aggregate_attention(attn):
@@ -65,7 +74,7 @@ def get_average_attention_over_sequence(aggregated_attention, token_ids: torch.T
     prompt_token_ids = token_ids[:len(token_ids)-len(aggregated_attention)]
 
     #for test:
-    prompt = tokenizer.decode(prompt_token_ids)
+    # prompt = tokenizer.decode(prompt_token_ids)
     # print("prompt: ", prompt)
     # print("strategy: ", sequence)
 
@@ -87,21 +96,88 @@ def get_average_attention_over_sequence(aggregated_attention, token_ids: torch.T
     return avg_attn_score
 
 
+def get_attention_per_strategy(files, tokenizer):
+    data = []
+    for file in files:
+        with open(file, 'rb') as f:
+            data.append(pickle.load(f))
+
+    res = {}
+    for example in tqdm(data):
+        if example is None:
+            continue
+        for strategy, (tokens, attentions) in example.items():
+            strategy_str = f'"{strategy}"'
+            attn = get_average_attention_over_sequence(attentions, tokens, sequence=strategy_str, tokenizer=tokenizer)
+            if strategy in res:
+                res[strategy].append(attn)
+            else:
+                res[strategy] = [attn]
+    return res
+
+
+def get_attention_per_strategy_and_description(files, tokenizer):
+    data = []
+    for file in files:
+        with open(file, 'rb') as f:
+            data.append(pickle.load(f))
+
+    res = {}
+    for example in tqdm(data):
+        if example is None:
+            continue
+        for strategy, (tokens, attentions) in example.items():
+            decoded_prompt = tokenizer.decode(tokens, skip_special_tokens=False)
+            # print(decoded_prompt)
+            match = re.findall(f'You are a helpful and caring friend.+{strategy} strategy\.', decoded_prompt)
+
+            if len(match) == 0 or len(match) > 1:
+                print("WARNING: no match or multiple matches found for prompt: ", decoded_prompt)
+                continue
+
+            attn = get_average_attention_over_sequence(attentions, tokens, sequence=match[0], tokenizer=tokenizer)
+            if strategy in res:
+                res[strategy].append(attn)
+            else:
+                res[strategy] = [attn]
+    return res
+
+
+def get_comparison_barchart(attn1, attn2, name1, name2, save_dir):
+    attn1_avg = {k: np.mean(v) for k, v in attn1.items()}
+    attn2_avg = {k: np.mean(v) for k, v in attn2.items()}
+
+    xlabels = list(attn1_avg.keys()) + list(attn2_avg.keys())
+    yvals = list(attn1_avg.values()) + list(attn2_avg.values())
+    legends = [name1] * len(attn1_avg) + [name2] * len(attn2_avg)
+
+    df = pd.DataFrame({'strategy': xlabels, 'attention': yvals, 'prompt_type': legends})
+    sns.barplot(df, x='strategy', y='attention', hue='prompt_type')
+    plt.xticks(rotation=90)
+    plt.savefig(f'{save_dir}.png')
+
+
+def compare_prompting_methods(output_dir1, output_dir2, model_name_or_path, name1='exp1', name2='exp2',
+                              save_dir='outputs/comparison', cache_dir=None):
+
+    files1 = glob(f'{output_dir1}/*.pkl')
+    files2 = glob(f'{output_dir2}/*.pkl')
+
+    print(f"Found {len(files1)} files in {output_dir1}")
+    print(f"Found {len(files2)} files in {output_dir2}")
+
+    tokenizer = AutoTokenizer.from_pretrained(model_name_or_path, cache_dir=cache_dir)
+    attn1 = get_attention_per_strategy(files1, tokenizer)
+    attn2 = get_attention_per_strategy(files2, tokenizer)
+
+    get_comparison_barchart(attn1, attn2, name1, name2, save_dir)
+
+    attn1 = get_attention_per_strategy_and_description(files1, tokenizer)
+    attn2 = get_attention_per_strategy_and_description(files2, tokenizer)
+
+    get_comparison_barchart(attn1, attn2, name1, name2, save_dir + '_with_description')
+
+
 if __name__ == '__main__':
-
-    import pickle
-    from transformers import AutoTokenizer
-
-    with open('../../llm_attention_viz/llm_attention_viz/data/1002_attentions.pkl', 'rb') as f:
-        ex = pickle.load(f)
-
-    tokenizer = AutoTokenizer.from_pretrained('meta-llama/Llama-2-7b-chat-hf')
-
-    strategies = list(ex.keys())
-
-    strategy, (tokens, attentions) = strategies[-1], ex[strategies[-1]]
-    strategy = f'"{strategy}"'
-    print(get_average_attention_over_sequence(attentions, tokens, sequence=strategy, tokenizer=tokenizer))
-
-
+    Fire(compare_prompting_methods)
 
