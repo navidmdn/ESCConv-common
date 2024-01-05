@@ -23,8 +23,13 @@ template1 = """You are a helpful, precise and accurate emotional support expert.
 
 template2 = """You are a helpful and caring friend.\
  Your best friend has come to you with the following situation: "{situation}". continue the\
+ conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and natural.\
+ Do not provide additional information. only respond in one paragraph that satisfies {cur_strategy} strategy."""
+
+template3 = """You are a helpful and caring friend.\
+ Your best friend has come to you with the following situation: "{situation}". continue the\
  conversation for one turn using "{cur_strategy}" strategy. {strategy_description} make your response short and to the point.\
- Do not provide additional info. only respond in one paragraph that satisfies {cur_strategy} strategy."""
+ Do not provide additional info. only respond in one or two short sentences that satisfies {cur_strategy} strategy."""
 
 
 def load_jsonl(path):
@@ -85,7 +90,7 @@ def convert_to_llama2_chat_format_manually(sys_msg: str, conversations: List[str
 
 
 def convert_to_llama2_chat_partial_conv_format(sys_msg: str, conversations: List[str], tokenizer,
-                                               n_turns_as_conv=3) -> str:
+                                               n_turns_as_conv=3, history_first=True, **kwargs) -> str:
     if n_turns_as_conv % 2 != 1:
         raise ValueError("n_turns_as_conv should be odd number")
 
@@ -103,7 +108,11 @@ def convert_to_llama2_chat_partial_conv_format(sys_msg: str, conversations: List
         conv_history_str += "user: " + conversations[i].strip() + "\n"
         conv_history_str += "assistant: " + conversations[i + 1].strip() + "\n"
 
-    sys_msg = f"{conv_history_str}\n{sys_msg.strip()}"
+    if history_first:
+        sys_msg = f"{conv_history_str}\n{sys_msg.strip()}"
+    else:
+        sys_msg = f"{sys_msg.strip()}\n{conv_history_str}"
+
     messages = [{'role': 'system', 'content': sys_msg}]
     messages.extend(conv_messages)
 
@@ -111,7 +120,7 @@ def convert_to_llama2_chat_partial_conv_format(sys_msg: str, conversations: List
     return formatted_prompt
 
 
-def convert_to_llama2_chat_format(sys_msg: str, conversations: List[str], tokenizer) -> str:
+def convert_to_llama2_chat_format(sys_msg: str, conversations: List[str], tokenizer, **kwargs) -> str:
     messages = [{'role': 'system', 'content': sys_msg}]
     for i in range(0, len(conversations) - 1, 2):
         messages.append({'role': 'user', 'content': conversations[i]})
@@ -166,7 +175,8 @@ def get_model_and_tokenizer(model_name, cache_dir, load_in_4bit=True):
 
 
 def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', get_attentions=False,
-                            max_new_tokens=512, prompt_constructor=convert_to_llama2_chat_format, sample_prob=0.3):
+                            max_new_tokens=512, prompt_constructor=convert_to_llama2_chat_format, sample_prob=0.3,
+                            history_first=True, n_turns_as_conv=3):
     dialog = conversation['dialog_history']
     speakers = conversation['prev_speakers']
     situation = conversation['situation']
@@ -187,9 +197,8 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
         sys_msg = template2.format(situation=situation, cur_strategy=strategy, strategy_description=desc)
 
         if model_type == 'llama' or model_type == 'mistral':
-            prompt = prompt_constructor(sys_msg, dialog, tokenizer)
+            prompt = prompt_constructor(sys_msg, dialog, tokenizer, n_turns_as_conv=n_turns_as_conv, history_first=history_first)
             input_ids = tokenizer(prompt, return_tensors='pt', add_special_tokens=False)['input_ids'].to(model.device)
-            print("length of input_ids: ", len(input_ids[0]))
             print("prompt: ", prompt)
 
         elif model_type == 'mistral':
@@ -217,7 +226,7 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
         response = outputs.sequences[0][len(input_ids[0]):]
         output_txt = tokenizer.decode(response, skip_special_tokens=True).strip()
         responses[strategy] = output_txt
-        print("\n\nresponse: ", output_txt)
+        print(f"\n\nstrategy:\n{strategy}\n\nresponse:\n{output_txt}")
 
     if attentions:
         return ESPromptOutput(dialog=dialog, situation=situation, speakers=speakers, responses=responses,
@@ -228,7 +237,7 @@ def get_continuation_prompt(conversation, model, tokenizer, model_type='llama', 
 
 def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_path='nickypro/tinyllama-15M',
         cache_dir=None, output_path='./outputs', load_in_4bit=True, get_attentions=False, max_new_tokens=512,
-        n_iters=1000, prompt_constructor='partial'):
+        n_iters=-1, prompt_constructor='partial', n_turns_as_conv=None, history_first=None):
     data = load_jsonl(data_path)
     data = [d for d in data if min_turn <= d['turn'] <= max_turn]
     model, tokenizer = get_model_and_tokenizer(model_path, cache_dir, load_in_4bit)
@@ -236,6 +245,8 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
     tokenizer.pad_token = tokenizer.eos_token
 
     if prompt_constructor == 'partial':
+        assert n_turns_as_conv is not None
+        assert history_first is not None
         prompt_constructor_func = convert_to_llama2_chat_partial_conv_format
     elif prompt_constructor == 'full':
         prompt_constructor_func = convert_to_llama2_chat_format
@@ -247,6 +258,9 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
     os.makedirs(output_path, exist_ok=True)
 
     i = 0
+    if n_iters == -1:
+        n_iters = len(data)
+
     while i < len(data):
         if i >= n_iters:
             break
@@ -256,8 +270,14 @@ def run(data_path='../original_data/train.json', min_turn=3, max_turn=12, model_
             continue
 
         conversation = data[rand_id]
-        generated_conts = get_continuation_prompt(conversation, model, tokenizer, get_attentions=get_attentions,
-                                                  max_new_tokens=max_new_tokens, prompt_constructor=prompt_constructor_func)
+        generated_conts = get_continuation_prompt(
+            conversation, model, tokenizer,
+            get_attentions=get_attentions,
+            max_new_tokens=max_new_tokens,
+            prompt_constructor=prompt_constructor_func,
+            history_first=history_first,
+            n_turns_as_conv=n_turns_as_conv
+        )
 
         with open(os.path.join(output_path, f'{rand_id}.json'), 'w') as f:
             json.dump(generated_conts.to_dict(), f)
